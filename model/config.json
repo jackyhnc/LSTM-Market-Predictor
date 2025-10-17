@@ -1,0 +1,23 @@
+{
+  "training": {
+    "window_size": 30,
+    "epochs": 50,
+    "batch_size": 32,
+    "learning_rate": 0.001,
+    "validation_split": 0.2
+  },
+  "features": [
+    "Close", "High", "Low", "Open",
+    "RSI_14", "Volatility_21",
+    "Volume", "Volume_Z", "Sentiment"
+  ],
+  "tda": {
+    "window_wasserstein": 30,
+    "eps": 0.5,
+    "maxdim": 2
+  },
+  "trading": {
+    "buy_threshold": 0.004,
+    "buy_amount_usd": 1000
+  }
+}
