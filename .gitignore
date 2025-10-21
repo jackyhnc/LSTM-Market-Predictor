@@ -1,4 +1,4 @@
-X_all.npy
+*.npy
 
 
 .venv
@@ -6,3 +6,4 @@ X_all.npy
 *.DS_Store
 
 *.csv
+
