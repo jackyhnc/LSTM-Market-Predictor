@@ -1,6 +1,10 @@
+using MudBlazor.Services; // mud
 using frontend.Components;
 
 var builder = WebApplication.CreateBuilder(args);
+
+
+builder.Services.AddMudServices(); // mud
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -26,3 +30,5 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+
