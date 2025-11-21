@@ -12,4 +12,7 @@
   <ItemGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
     <SourceRoot Include="/Users/jackyhanc/.nuget/packages/" />
   </ItemGroup>
+  <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <Import Project="$(NuGetPackageRoot)mudblazor/8.13.0/buildTransitive/MudBlazor.props" Condition="Exists('$(NuGetPackageRoot)mudblazor/8.13.0/buildTransitive/MudBlazor.props')" />
+  </ImportGroup>
 </Project>
