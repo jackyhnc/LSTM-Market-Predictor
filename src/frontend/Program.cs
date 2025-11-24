@@ -10,6 +10,14 @@ builder.Services.AddMudServices(); // mud
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// apis
+builder.Services.AddHttpClient();
+
+builder.Services.AddHttpClient("ModelInferenceBackend", client => {
+    client.BaseAddress = new Uri("http://127.0.0.1:8000");
+    client.Timeout = TimeSpan.FromMinutes(10);
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

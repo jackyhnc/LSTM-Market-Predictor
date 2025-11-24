@@ -1,7 +1,22 @@
 ﻿@page "/"
 @rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
 
+<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateDashboardData" Disabled="@_isLoading">
+    @if (_isLoading)
+    {
+        <text>Loading...</text>
+    }
+    else
+    {
+        <text>Run Alpaca Predict & Trade</text>
+    }
+</MudButton>
 
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <MudAlert Severity="Severity.Error" Class="mt-3">@_errorMessage</MudAlert>
+}
 
 <MudPaper Class="doc-section-component-container">
     <MudChart ChartType="ChartType.Line" ChartSeries="@_series" @bind-SelectedIndex="_index" XAxisLabels="@_xAxisLabels" Width="@_width" Height="@_height" ChartOptions="@_options" AxisChartOptions="_axisChartOptions" />
@@ -9,7 +24,7 @@
 
 <MudGrid>
     <MudItem md="6" xs="12">
-        <MudText Typo="Typo.body1" Class="py-3">Selected: @(_index < 0 ? "None" : _series[_index].Name)</MudText>
+        <MudText Typo="Typo.body1" Class="py-3">Selected: @(_index < 0 || _index >= _series.Count ? "None" : _series[_index].Name)</MudText>
     </MudItem>
     <MudItem md="6" xs="12">
         <MudTextField @bind-Value="_width" Label="Chart Width"></MudTextField>
@@ -21,13 +36,7 @@
         <MudTextField @bind-Value="_height" Label="Chart Height"></MudTextField>
     </MudItem>
     <MudItem md="6" xs="12">
-        <MudCheckBox T="bool" ValueChanged="(v)=> _series[0].LineDisplayType = v ? LineDisplayType.Area : LineDisplayType.Line" Label="Fossil as Area"></MudCheckBox>
-    </MudItem>
-    <MudItem md="6" xs="12">
         <MudSlider @bind-Value="_options.LineStrokeWidth" Min="1" Max="10">Line Width: @_options.LineStrokeWidth.ToString()</MudSlider>
-    </MudItem>
-    <MudItem md="6" xs="12">
-        <MudCheckBox T="bool" ValueChanged="(v)=> _series[1].LineDisplayType = v ? LineDisplayType.Area : LineDisplayType.Line" Label="Renewable as Area"></MudCheckBox>
     </MudItem>
     <MudItem md="6" xs="12">
         <MudStack>
@@ -46,11 +55,74 @@
     private AxisChartOptions _axisChartOptions = new AxisChartOptions();
     private string _width = "650px";
     private string _height = "350px";
+    private bool _isLoading = false;
+    private string _errorMessage = string.Empty;
 
     private List<ChartSeries> _series = new List<ChartSeries>()
     {
-        new ChartSeries() { Name = "Fossil", Data = new double[] { 90, 79, 72, 69, 62, 62, 55, 65, 70 } },
-        new ChartSeries() { Name = "Renewable", Data = new double[] { 10, 41, 35, 51, 49, 62, 69, 91, 148 } },
+        new ChartSeries() { Name = "Predictions", Data = new double[] { } },
     };
-    private string[] _xAxisLabels = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep" };
+    private string[] _xAxisLabels = Array.Empty<string>();
+
+    public class PredictionResponse
+    {
+        public string Ticker { get; set; } = string.Empty;
+        public double Prediction { get; set; }
+        public string? AlpacaAction { get; set; }
+        public int? Quantity { get; set; }
+        public string? OrderStatus { get; set; }
+        public string? OrderMessage { get; set; }
+    }
+
+    async Task UpdateDashboardData()
+    {
+        _isLoading = true;
+        _errorMessage = string.Empty;
+        
+        try
+        {
+            // Call endpoint that executes Alpaca API trading logic, e.g., /predict_buy_sell with Alpaca
+            var httpClient = HttpClientFactory.CreateClient("ModelInferenceBackend");
+            var response = await httpClient.GetFromJsonAsync<List<PredictionResponse>>("/predict_buy_sell"); // This triggers prediction + buys/sells
+
+            if (response != null && response.Count > 0)
+            {
+                // Sort by prediction value for better visualization
+                var sortedPredictions = response.OrderByDescending(p => p.Prediction).ToList();
+
+                // Update x-axis labels with ticker names (add action info for differentiation)
+                _xAxisLabels = sortedPredictions.Select(p =>
+                    string.IsNullOrEmpty(p.AlpacaAction)
+                        ? p.Ticker
+                        : $"{p.Ticker} ({p.AlpacaAction?.ToUpper()})"
+                ).ToArray();
+
+                // Update chart series with predictions
+                var predictionValues = sortedPredictions.Select(p => p.Prediction).ToArray();
+                _series = new List<ChartSeries>()
+                {
+                    new ChartSeries() { Name = "Predictions", Data = predictionValues }
+                };
+
+                // Reset selection index when data updates
+                _index = -1;
+            }
+            else
+            {
+                _errorMessage = "No predictions or orders returned from the backend.";
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _errorMessage = $"Error connecting to backend/Alpaca: {ex.Message}. Make sure the backend server is running and Alpaca credentials are configured.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error fetching predictions and Alpaca orders: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
 }
