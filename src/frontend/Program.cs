@@ -4,7 +4,12 @@ using frontend.Components;
 var builder = WebApplication.CreateBuilder(args);
 
 
-builder.Services.AddMudServices(); // mud
+// Configure MudBlazor services with options to handle .NET 9 InteractiveServer timing issues
+builder.Services.AddMudServices(options =>
+{
+    // Disable strict provider checking to avoid timing issues with InteractiveServer render mode
+    options.PopoverOptions.CheckForPopoverProvider = false;
+});
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -26,10 +31,8 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
-
-app.UseHttpsRedirection();
-
 
 app.UseAntiforgery();
 

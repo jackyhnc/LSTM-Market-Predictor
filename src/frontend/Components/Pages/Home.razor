@@ -1,26 +1,69 @@
 ﻿@page "/"
 @rendermode InteractiveServer
 @inject IHttpClientFactory HttpClientFactory
+@using System.Text.Json.Serialization
 
-<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateDashboardData" Disabled="@_isLoading">
-    @if (_isLoading)
-    {
-        <text>Loading...</text>
-    }
-    else
-    {
-        <text>Run Alpaca Predict & Trade</text>
-    }
-</MudButton>
+<MudStack Row="true" Spacing="2" Class="mb-4">
+    <MudSelect @bind-Value="_selectedPeriod" Label="Select Period" Placeholder="Please Select" Modal="true" ReadOnly="true" Disabled="false">
+        <MudSelectItem Value="@("1H")">1 Hour</MudSelectItem>
+        <MudSelectItem Value="@("1D")">1 Day</MudSelectItem>
+        <MudSelectItem Value="@("1W")">1 Week</MudSelectItem>
+        <MudSelectItem Value="@("1M")">1 Month</MudSelectItem>
+        <MudSelectItem Value="@("1Y")">1 Year</MudSelectItem>
+    </MudSelect>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="FetchPortfolioHistory" Disabled="@_isLoading">
+        @if (_isLoading && _currentAction == "fetch")
+        {
+            <text>Loading...</text>
+        }
+        else
+        {
+            <text>Load Portfolio History</text>
+        }
+    </MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="PredictAndRefreshHistory" Disabled="@_isLoading">
+        @if (_isLoading && _currentAction == "predict")
+        {
+            <text>Predicting...</text>
+        }
+        else
+        {
+            <text>Run Predictions</text>
+        }
+    </MudButton>
+</MudStack>
 
 @if (!string.IsNullOrEmpty(_errorMessage))
 {
-    <MudAlert Severity="Severity.Error" Class="mt-3">@_errorMessage</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mt-3" dismissible="true" onclose="() => _errorMessage = string.Empty">
+        <MudText Typo="Typo.body1"><strong>Error:</strong> @_errorMessage</MudText>
+    </MudAlert>
 }
 
-<MudPaper Class="doc-section-component-container">
-    <MudChart ChartType="ChartType.Line" ChartSeries="@_series" @bind-SelectedIndex="_index" XAxisLabels="@_xAxisLabels" Width="@_width" Height="@_height" ChartOptions="@_options" AxisChartOptions="_axisChartOptions" />
-</MudPaper>
+@if (_isLoading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mt-3"></MudProgressLinear>
+}
+
+@if (!_isLoading && _series.Count > 0 && _series[0].Data.Length == 0)
+{
+    <MudAlert Severity="Severity.Info" Class="mt-3">
+        <MudText Typo="Typo.body1">No portfolio data available. Click "Load Portfolio History" to fetch data.</MudText>
+    </MudAlert>
+}
+
+@if (_series.Count > 0 && _series[0].Data.Length > 0)
+{
+    <MudPaper Class="doc-section-component-container">
+        <MudChart ChartType="ChartType.Line" ChartSeries="@_series" @bind-SelectedIndex="_index" XAxisLabels="@_xAxisLabels" Width="@_width" Height="@_height" ChartOptions="@_options" AxisChartOptions="_axisChartOptions" />
+    </MudPaper>
+}
+else
+{
+    <MudPaper Class="doc-section-component-container" Style="min-height: 350px; display: flex; align-items: center; justify-content: center;">
+        <MudText Typo="Typo.h6" Align="Align.Center">No chart data available</MudText>
+    </MudPaper>
+}
 
 <MudGrid>
     <MudItem md="6" xs="12">
@@ -50,79 +93,154 @@
 </MudGrid>
 
 @code {
-    private int _index = -1; //default value cannot be 0 -> first selectedindex is 0.
-    private ChartOptions _options = new ChartOptions();
+    private int _index = -1;
+    private ChartOptions _options = new ChartOptions() { YAxisTicks = 500 };
     private AxisChartOptions _axisChartOptions = new AxisChartOptions();
-    private string _width = "650px";
-    private string _height = "350px";
+    private string _width = "1000px";
+    private string _height = "500px";
     private bool _isLoading = false;
     private string _errorMessage = string.Empty;
+    private string _currentAction = string.Empty;
+    private string _selectedPeriod = "1D";
 
     private List<ChartSeries> _series = new List<ChartSeries>()
     {
-        new ChartSeries() { Name = "Predictions", Data = new double[] { } },
+        new ChartSeries() { Name = "Portfolio Value", Data = new double[] { } },
     };
     private string[] _xAxisLabels = Array.Empty<string>();
 
-    public class PredictionResponse
+    public class PortfolioDataPoint
     {
-        public string Ticker { get; set; } = string.Empty;
-        public double Prediction { get; set; }
-        public string? AlpacaAction { get; set; }
-        public int? Quantity { get; set; }
-        public string? OrderStatus { get; set; }
-        public string? OrderMessage { get; set; }
+        [JsonPropertyName("date")]
+        public string Date { get; set; } = string.Empty;
+        
+        [JsonPropertyName("portfolio_value")]
+        public double PortfolioValue { get; set; }
     }
 
-    async Task UpdateDashboardData()
+    protected override async Task OnInitializedAsync()
+    {
+        await FetchPortfolioHistory();
+    }
+
+    private async Task FetchPortfolioHistory()
     {
         _isLoading = true;
+        _currentAction = "fetch";
         _errorMessage = string.Empty;
-        
+
         try
         {
-            // Call endpoint that executes Alpaca API trading logic, e.g., /predict_buy_sell with Alpaca
             var httpClient = HttpClientFactory.CreateClient("ModelInferenceBackend");
-            var response = await httpClient.GetFromJsonAsync<List<PredictionResponse>>("/predict_buy_sell"); // This triggers prediction + buys/sells
-
-            if (response != null && response.Count > 0)
+            
+            var requestBody = new
             {
-                // Sort by prediction value for better visualization
-                var sortedPredictions = response.OrderByDescending(p => p.Prediction).ToList();
+                period = _selectedPeriod
+            };
+            
+            var jsonContent = System.Text.Json.JsonSerializer.Serialize(requestBody);
+            var requestContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+            
+            var response = await httpClient.PostAsync("/portfolio_history", requestContent);
 
-                // Update x-axis labels with ticker names (add action info for differentiation)
-                _xAxisLabels = sortedPredictions.Select(p =>
-                    string.IsNullOrEmpty(p.AlpacaAction)
-                        ? p.Ticker
-                        : $"{p.Ticker} ({p.AlpacaAction?.ToUpper()})"
-                ).ToArray();
+            if (response.IsSuccessStatusCode)
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
 
-                // Update chart series with predictions
-                var predictionValues = sortedPredictions.Select(p => p.Prediction).ToArray();
-                _series = new List<ChartSeries>()
+                var jsonDoc = System.Text.Json.JsonDocument.Parse(responseContent);
+
+                if (jsonDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                    jsonDoc.RootElement.TryGetProperty("error", out var errorProperty))
                 {
-                    new ChartSeries() { Name = "Predictions", Data = predictionValues }
-                };
+                    _errorMessage = errorProperty.GetString() ?? "Unknown error from backend";
+                    return;
+                }
 
-                // Reset selection index when data updates
-                _index = -1;
+                var portfolioData = System.Text.Json.JsonSerializer.Deserialize<List<PortfolioDataPoint>>(responseContent);
+
+                if (portfolioData != null && portfolioData.Count > 0)
+                {
+                    var sortedData = portfolioData.OrderBy(p => p.Date).ToList();
+
+                    _xAxisLabels = sortedData.Select(p => p.Date).ToArray();
+
+                    var portfolioValues = sortedData.Select(p => p.PortfolioValue).ToArray();
+                    _series = new List<ChartSeries>()
+                    {
+                        new ChartSeries() { Name = "Portfolio Value", Data = portfolioValues }
+                    };
+
+                    _index = -1;
+                    _errorMessage = string.Empty; // Clear any previous errors
+                    StateHasChanged(); // Force UI update/logging
+                }
+                else
+                {
+                    _errorMessage = "No portfolio history data returned from the backend. The portfolio may be empty or there may be no trading history.";
+                    _series = new List<ChartSeries>()
+                    {
+                        new ChartSeries() { Name = "Portfolio Value", Data = new double[] { } }
+                    };
+                    _xAxisLabels = Array.Empty<string>();
+                }
             }
             else
             {
-                _errorMessage = "No predictions or orders returned from the backend.";
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _errorMessage = $"Error from backend ({(int)response.StatusCode}): {response.ReasonPhrase}. {errorContent}";
             }
         }
         catch (HttpRequestException ex)
         {
-            _errorMessage = $"Error connecting to backend/Alpaca: {ex.Message}. Make sure the backend server is running and Alpaca credentials are configured.";
+            _errorMessage = $"Error connecting to backend: {ex.Message}. Make sure the backend server is running on http://127.0.0.1:8000 and Alpaca credentials are configured in the .env file.";
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Error fetching predictions and Alpaca orders: {ex.Message}";
+            _errorMessage = $"error fetching portfolio history: {ex.Message}";
         }
         finally
         {
             _isLoading = false;
+            _currentAction = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PredictAndRefreshHistory()
+    {
+        _isLoading = true;
+        _currentAction = "predict";
+        _errorMessage = string.Empty;
+
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("ModelInferenceBackend");
+
+            // POST to prediction endpoint (make predictions)
+            var predictResponse = await httpClient.PostAsync("/predict", null);
+
+            if (!predictResponse.IsSuccessStatusCode)
+            {
+                _errorMessage = $"error from backend during prediction: {predictResponse.StatusCode} - {predictResponse.ReasonPhrase}";
+                return;
+            }
+
+            // Upon success, fetch the portfolio history again!
+            await FetchPortfolioHistory();
+        }
+        catch (HttpRequestException ex)
+        {
+            _errorMessage = $"error connecting to backend (predict): {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"error during prediction: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            _currentAction = string.Empty;
+            StateHasChanged();
         }
     }
 }

@@ -6,6 +6,8 @@ from ripser import Rips
 import persim
 from keras.models import load_model
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import pickle
 from transformers import BertTokenizer, BertForSequenceClassification, pipeline
 import torch
@@ -18,6 +20,22 @@ import os
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5000",
+        "http://localhost:5001",
+        "https://localhost:5000",
+        "https://localhost:5001",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:5001",
+        "http://localhost:5015",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
 def read_root():
@@ -28,6 +46,12 @@ def read_root():
 - predicts buy or sell for all tracked tickers
 -then performs buy hold sell logic on alpaca api
 """
+
+
+@app.post("/predict")
+def predict():
+    """POST endpoint for making predictions and executing trades"""
+    return predict_buy_sell()
 
 
 @app.get("/predict_buy_sell")
@@ -409,34 +433,39 @@ def predict_buy_sell():
         {"Ticker": ticker_names, "Prediction": predictions.flatten()}
     )
     print(results_df.head())
-    results_df.to_csv(f"results_predictions_{start_date}_to_{end_date}.csv", index=False)
-    
+    results_df.to_csv(
+        f"results_predictions_{start_date}_to_{end_date}.csv", index=False
+    )
+
     #### alpaca api
     import requests
     from dotenv import load_dotenv
+
     load_dotenv()
 
     ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY")
     ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY")
     ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
-    
+
     headers = {
         "APCA-API-KEY-ID": ALPACA_API_KEY,
-        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY
+        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
     }
-    
+
     def alpaca_trading(results_df, df_finance):
 
         buy_threshold = 0.004  # log returns
         buy_amount_usd = 1000
-
 
         positions_url = f"{ALPACA_BASE_URL}/v2/positions"
         try:
             response = requests.get(positions_url, headers=headers)
             response.raise_for_status()
             positions_data = response.json()
-            current_positions = {position['symbol']: float(position['qty']) for position in positions_data}
+            current_positions = {
+                position["symbol"]: float(position["qty"])
+                for position in positions_data
+            }
         except Exception as e:
             print(f"error fetching positions: {e}")
             current_positions = {}
@@ -457,18 +486,27 @@ def predict_buy_sell():
                                 "qty": qty,
                                 "side": "buy",
                                 "type": "market",
-                                "time_in_force": "day"
+                                "time_in_force": "day",
                             }
                             order_url = f"{ALPACA_BASE_URL}/v2/orders"
-                            order_response = requests.post(order_url, json=order, headers=headers)
-                            if order_response.status_code == 200 or order_response.status_code == 201:
+                            order_response = requests.post(
+                                order_url, json=order, headers=headers
+                            )
+                            if (
+                                order_response.status_code == 200
+                                or order_response.status_code == 201
+                            ):
                                 print(f"bought {qty} of {ticker} at ${last_price:.2f}")
                             else:
-                                print(f"error submitting buy order for {ticker}: {order_response.text}")
+                                print(
+                                    f"error submitting buy order for {ticker}: {order_response.text}"
+                                )
                     except Exception as e:
                         print(f"error buying {ticker}: {e}")
                 else:
-                    print(f"holding {ticker}: already in portfolio ({current_positions[ticker]} shares)")
+                    print(
+                        f"holding {ticker}: already in portfolio ({current_positions[ticker]} shares)"
+                    )
             else:
                 if ticker in current_positions and current_positions[ticker] > 0:
                     try:
@@ -478,24 +516,31 @@ def predict_buy_sell():
                             "qty": qty,
                             "side": "sell",
                             "type": "market",
-                            "time_in_force": "day"}
+                            "time_in_force": "day",
+                        }
                         order_url = f"{ALPACA_BASE_URL}/v2/orders"
-                        order_response = requests.post(order_url, json=order, headers=headers)
-                        if order_response.status_code == 200 or order_response.status_code == 201:
+                        order_response = requests.post(
+                            order_url, json=order, headers=headers
+                        )
+                        if (
+                            order_response.status_code == 200
+                            or order_response.status_code == 201
+                        ):
                             print(f"sold {qty} of {ticker}")
                         else:
-                            print(f"error submitting sell order for {ticker}: {order_response.text}")
+                            print(
+                                f"error submitting sell order for {ticker}: {order_response.text}"
+                            )
                     except Exception as e:
                         print(f"error selling {ticker}: {e}")
 
     import pytz
+
     def has_trades_today():
         eastern = pytz.timezone("US/Eastern")
         today_eastern = datetime.now(eastern).date().isoformat()
         activities_url = f"{ALPACA_BASE_URL}/v2/account/activities"
-        params = {
-            "activity_types": "FILL"
-        }
+        params = {"activity_types": "FILL"}
         response = requests.get(activities_url, headers=headers, params=params)
         if response.status_code == 200:
             activities = response.json()
@@ -512,5 +557,74 @@ def predict_buy_sell():
         alpaca_trading(results_df, df_finance)
     else:
         print("Trades have already been made today, don't wanna repeat auto trades.")
-    
+
     return results_df.to_dict(orient="records")
+
+
+class PortfolioHistoryRequest(BaseModel):
+    period: str = "1D"
+
+
+@app.post("/portfolio_history")
+def get_portfolio_history(request: PortfolioHistoryRequest):
+    period = request.period
+    import requests
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY")
+    ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY")
+    ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+
+    headers = {
+        "APCA-API-KEY-ID": ALPACA_API_KEY,
+        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+    }
+
+    try:
+        portfolio_history_url = f"{ALPACA_BASE_URL}/v2/account/portfolio/history"
+        if period in ["1H"]:
+            timeframe = "5Min"
+        elif period in ["1D"]:
+            timeframe = "1H"
+        elif period in ["1W"]:
+            timeframe = "1D"
+        elif period in ["1M"]:
+            timeframe = "1W"
+        elif period in ["1Y"]:
+            timeframe = "1M"
+        else:
+            return {
+                "error": f"Invalid period: {period}. Valid periods are: 1H, 1D, 1W, 1M, 1Y"
+            }
+
+        params = {
+            "period": period,
+            "timeframe": timeframe,
+            "extended_hours": "false",
+        }
+
+        response = requests.get(portfolio_history_url, headers=headers, params=params)
+        response.raise_for_status()
+        portfolio_data = response.json()
+
+        if "equity" in portfolio_data and "timestamp" in portfolio_data:
+            timestamps = portfolio_data["timestamp"]
+            equity_values = portfolio_data["equity"]
+
+            portfolio_history = []
+            for i, timestamp in enumerate(timestamps):
+                date_str = pd.to_datetime(timestamp, unit="s").strftime("%Y-%m-%d")
+                portfolio_history.append(
+                    {"date": date_str, "portfolio_value": float(equity_values[i])}
+                )
+            print(portfolio_history)
+            return portfolio_history
+        else:
+            return {"error": "no portfolio history data available from alpaca"}
+
+    except requests.exceptions.RequestException as e:
+        return {"error": f"error fetching portfolio history from alpaca: {str(e)}"}
+    except Exception as e:
+        return {"error": f"unexpected error: {str(e)}"}
