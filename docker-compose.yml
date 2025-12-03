@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  model-backend:
+    image: python:3.11-slim
+    working_dir: /app
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./src/model-backend:/app
+      - ./model:/app/model
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./src/model-backend/.env
+
+  frontend:
+    image: mcr.microsoft.com/dotnet/aspnet:8.0
+    working_dir: /app
+    volumes:
+      - ./src/frontend:/app
+    ports:
+      - "5000:80"
+    depends_on:
+      - model-backend
