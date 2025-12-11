@@ -33,6 +33,13 @@
     </MudButton>
 </MudStack>
 
+@if (_crisisStatus)
+{
+    <MudAlert Severity="Severity.Warning" Class="mt-3" dismissible="true" onclose="() => _crisisStatus = false">
+        <MudText Typo="Typo.body1"><strong>⚠️ Market Crisis Detected:</strong> Topological analysis indicates a significant market topology spike. Exercise caution with trading decisions.</MudText>
+    </MudAlert>
+}
+
 @if (!string.IsNullOrEmpty(_errorMessage))
 {
     <MudAlert Severity="Severity.Error" Class="mt-3" dismissible="true" onclose="() => _errorMessage = string.Empty">
@@ -102,6 +109,7 @@ else
     private string _errorMessage = string.Empty;
     private string _currentAction = string.Empty;
     private string _selectedPeriod = "1D";
+    private bool _crisisStatus = false;
 
     private List<ChartSeries> _series = new List<ChartSeries>()
     {
@@ -223,6 +231,19 @@ else
             {
                 _errorMessage = $"error from backend during prediction: {predictResponse.StatusCode} - {predictResponse.ReasonPhrase}";
                 return;
+            }
+
+            // Parse the response to get crisis_status
+            var responseContent = await predictResponse.Content.ReadAsStringAsync();
+            var jsonDoc = System.Text.Json.JsonDocument.Parse(responseContent);
+            
+            if (jsonDoc.RootElement.TryGetProperty("crisis_status", out var crisisStatusProperty))
+            {
+                _crisisStatus = crisisStatusProperty.GetBoolean();
+            }
+            else
+            {
+                _crisisStatus = false;
             }
 
             // Upon success, fetch the portfolio history again!

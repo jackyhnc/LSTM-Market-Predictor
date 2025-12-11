@@ -20,7 +20,7 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddHttpClient("ModelInferenceBackend", client => {
     client.BaseAddress = new Uri("http://127.0.0.1:8000");
-    client.Timeout = TimeSpan.FromMinutes(10);
+    client.Timeout = TimeSpan.FromMinutes(20);
 });
 
 var app = builder.Build();

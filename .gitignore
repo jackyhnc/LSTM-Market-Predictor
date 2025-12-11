@@ -11,3 +11,11 @@
 .vscode
 
 .env
+
+# .NET build artifacts
+bin/
+obj/
+
+# Python cache
+__pycache__/
+*.pyc

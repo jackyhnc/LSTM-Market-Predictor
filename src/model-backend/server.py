@@ -437,6 +437,31 @@ def predict_buy_sell():
         f"results_predictions_{start_date}_to_{end_date}.csv", index=False
     )
 
+    #### crisis detection based on wasserstein distance spikes
+    crisis_status = False
+    wasserstein_values = df_finance["Wasserstein"].dropna()
+    if len(wasserstein_values) > 10:
+        wasserstein_array = wasserstein_values.values
+        wasserstein_mean = np.mean(wasserstein_array)
+        wasserstein_std = np.std(wasserstein_array)
+
+        recent_wasserstein = wasserstein_values.iloc[-1]
+
+        # Crisis detection: if recent wasserstein is > 2 standard deviations above mean
+        crisis_threshold_std = wasserstein_mean + 2 * wasserstein_std
+        crisis_threshold_percentile = np.percentile(wasserstein_array, 95)
+
+        if (
+            recent_wasserstein > crisis_threshold_std
+            or recent_wasserstein > crisis_threshold_percentile
+        ):
+            crisis_status = True
+            print(f"CRISIS DETECTED")
+        else:
+            print(f"Market topology normal")
+    else:
+        print(f"Insufficient Wasserstein data for crisis detection")
+
     #### alpaca api
     import requests
     from dotenv import load_dotenv
@@ -558,12 +583,14 @@ def predict_buy_sell():
     else:
         print("Trades have already been made today, don't wanna repeat auto trades.")
 
-    return results_df.to_dict(orient="records")
+    return {
+        "predictions": results_df.to_dict(orient="records"),
+        "crisis_status": crisis_status,
+    }
 
 
 class PortfolioHistoryRequest(BaseModel):
     period: str = "1D"
-
 
 @app.post("/portfolio_history")
 def get_portfolio_history(request: PortfolioHistoryRequest):
