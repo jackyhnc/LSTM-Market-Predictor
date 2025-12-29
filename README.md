@@ -201,18 +201,6 @@ $$\sigma \in \mathcal{R}(\epsilon) \iff d(x_i, x_j) \leq \epsilon \quad \forall\
 
 That is, a simplex is included when all its vertices are within distance $\epsilon$ of each other. As $\epsilon$ increases from 0 to $\infty$, topological features (connected components, loops, voids) are born and die. The set of (birth, death) pairs for $k$-dimensional features is called the **persistence diagram** $\text{PD}_k$.
 
-```
-ε small:          ε medium:         ε large:
-  ·  ·  ·           ·──·  ·           ·──·
-  · ·   ·           · ·───·           ·──·──·
-  ·  ·  ·           ·  ·  ·           ·──·──·
-
-Many components   Loops form       All connected
-  H0 births       H1 births         H1 dies
-```
-
-*Figure 3. Schematic of the Vietoris-Rips filtration. As ε grows, points connect into edges, triangles, and tetrahedra.*
-
 The `ripser` library computes this filtration efficiently up to `maxdim=2`, yielding diagrams for $H_0$ (connected components), $H_1$ (loops/cycles), and $H_2$ (voids).
 
 #### Wasserstein Distance as a Temporal Feature
@@ -338,23 +326,23 @@ where $\mu_W$ and $\sigma_W$ are the mean and standard deviation of the full ser
 
 When a crisis is detected, `crisis_status = true` is returned to the frontend and a warning banner is displayed. Importantly, **trading is not automatically suspended** when a crisis is detected — the flag is informational, allowing a human operator to interpret the signal in context.
 
-A historical analysis of this indicator suggests that significant spikes in $H_1$ Wasserstein distance correspond to macro stress events:
+A historical analysis of this indicator on actual S&P 500 data confirms that significant spikes in $H_1$ Wasserstein distance correspond to macro stress events. The plots below are generated from this pipeline on historical data.
 
-```
-Wasserstein
-Distance
-    │
-  ▲ │               ╭╮
-    │         ╭╮    ││
-    │    ╭╮   ││    ││   ╭╮
-    │    ││   ││    ││   ││
-────┼────┼┼───┼┼────┼┼───┼┼───── time
-    │  2008  2011  2020  2022
-    │  GFC   EU   COVID  Rate
-    │       Crisis Crash Hike
-```
+<div align="center">
 
-*Figure 4. Schematic illustration of Wasserstein distance spikes at known market stress events. Actual magnitudes vary by universe and window size.*
+![Homology Changes Around 2008 Crash](assets/homology_2008_crash.png)
+
+*Figure 4. Normalized Wasserstein distance (blue) vs. S&P 500 index (orange) around the 2008 financial crisis. The Wasserstein distance spikes sharply at the crash (red dashed line), capturing the sudden collapse in cross-asset correlation structure.*
+
+</div>
+
+<div align="center">
+
+![Homology Changes Predicted Crash](assets/homology_2009_predicted.png)
+
+*Figure 5. The same indicator over the extended 2008–2009 period. The Wasserstein distance begins spiking before the market bottom in March 2009 (red dashed line), suggesting the topological signal may lead price action — the topology of the return manifold destabilizes before the index reaches its trough.*
+
+</div>
 
 ### 5.2 Order Execution
 
