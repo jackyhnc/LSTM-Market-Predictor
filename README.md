@@ -4,7 +4,7 @@
 
 <img width="1465" height="758" alt="Dashboard" src="https://github.com/user-attachments/assets/35f4aa47-602a-4417-9fbf-d2b4c7dbec81" />
 
-*Figure 1. Live trading dashboard showing portfolio equity curve with crisis detection banner.*
+*Figure 1. Live trading dashboard showing portfolio equity curve with TDA-based crisis detection banner.*
 
 </div>
 
@@ -12,327 +12,190 @@
 
 ## Abstract
 
-This project presents a fully automated equity trading system targeting the S&P 500 universe. The system fuses three distinct signal modalities — classical technical analysis, topological data analysis (TDA) of cross-asset return manifolds, and transformer-based news sentiment — into a unified feature vector that is consumed by a Long Short-Term Memory (LSTM) recurrent neural network. The model outputs a predicted log return for each ticker over the next trading day, which is thresholded to generate binary buy/hold/sell signals that are then executed as paper trades through the Alpaca Markets API. A Blazor Server frontend provides a real-time dashboard of portfolio equity history and on-demand pipeline invocation. The design emphasizes the novel combination of persistent homology as a market-regime feature alongside per-asset technicals and NLP-derived sentiment, with the hypothesis that topological features capture systemic cross-asset correlation shifts that are invisible to single-asset indicators.
+This project presents a fully automated equity trading system targeting the S&P 500 universe. The system fuses three distinct signal modalities — classical technical analysis, topological data analysis (TDA) of cross-asset return manifolds, and transformer-based news sentiment — into a unified feature vector consumed by a Long Short-Term Memory (LSTM) recurrent neural network. The model outputs a predicted log return for each ticker over the next trading day, which is thresholded to generate binary buy/hold/sell signals executed as paper trades through the Alpaca Markets API. The central novelty is the use of persistent homology — specifically the Wasserstein distance between consecutive $H_1$ persistence diagrams of the rolling cross-asset return point cloud — as a market-regime feature, with the hypothesis that this topological descriptor captures systemic correlation shifts invisible to any single-asset indicator.
 
 ---
 
 ## Table of Contents
 
 - [1. Introduction & Motivation](#1-introduction--motivation)
-- [2. System Architecture](#2-system-architecture)
-- [3. Feature Engineering Pipeline](#3-feature-engineering-pipeline)
-  - [3.1 Market Data Ingestion](#31-market-data-ingestion)
-  - [3.2 Technical Indicators](#32-technical-indicators)
-  - [3.3 Topological Data Analysis](#33-topological-data-analysis)
-  - [3.4 News Sentiment Analysis](#34-news-sentiment-analysis)
-- [4. LSTM Model](#4-lstm-model)
-  - [4.1 Architecture](#41-architecture)
-  - [4.2 Input Tensor Construction](#42-input-tensor-construction)
-  - [4.3 Target Variable](#43-target-variable)
-- [5. Trading Strategy & Signal Logic](#5-trading-strategy--signal-logic)
-  - [5.1 Crisis Detection](#51-crisis-detection)
-  - [5.2 Order Execution](#52-order-execution)
-- [6. System Components & Setup](#6-system-components--setup)
-  - [6.1 Project Structure](#61-project-structure)
-  - [6.2 Prerequisites](#62-prerequisites)
-  - [6.3 Backend Setup](#63-backend-setup)
-  - [6.4 Frontend Setup](#64-frontend-setup)
-- [7. Configuration Reference](#7-configuration-reference)
-- [8. API Reference](#8-api-reference)
-- [9. Caching & Performance](#9-caching--performance)
-- [10. Dashboard](#10-dashboard)
-- [11. Limitations & Future Work](#11-limitations--future-work)
+- [2. Feature Engineering Pipeline](#2-feature-engineering-pipeline)
+  - [2.1 Market Data & Window Design](#21-market-data--window-design)
+  - [2.2 Technical Indicators](#22-technical-indicators)
+  - [2.3 Topological Data Analysis](#23-topological-data-analysis)
+  - [2.4 News Sentiment via FinBERT](#24-news-sentiment-via-finbert)
+- [3. LSTM Model](#3-lstm-model)
+  - [3.1 Recurrent Architecture & Gating](#31-recurrent-architecture--gating)
+  - [3.2 Input Tensor & Feature Standardization](#32-input-tensor--feature-standardization)
+  - [3.3 Target Variable](#33-target-variable)
+- [4. Trading Strategy & Signal Logic](#4-trading-strategy--signal-logic)
+  - [4.1 Crisis Detection via Wasserstein Thresholding](#41-crisis-detection-via-wasserstein-thresholding)
+  - [4.2 Order Execution](#42-order-execution)
+- [5. Setup](#5-setup)
+- [6. Future Work: Advanced Mathematics](#6-future-work-advanced-mathematics)
+  - [6.1 Multiparameter Persistence](#61-multiparameter-persistence)
+  - [6.2 Persistent Laplacians & Spectral TDA](#62-persistent-laplacians--spectral-tda)
+  - [6.3 Sheaf Theory on Market Networks](#63-sheaf-theory-on-market-networks)
+  - [6.4 Zigzag Persistence for Non-Stationary Topology](#64-zigzag-persistence-for-non-stationary-topology)
+  - [6.5 Path Signatures & Rough Path Theory](#65-path-signatures--rough-path-theory)
+  - [6.6 Information Geometry of Return Distributions](#66-information-geometry-of-return-distributions)
+  - [6.7 Topological Autoencoders & Representation Learning](#67-topological-autoencoders--representation-learning)
+  - [6.8 Random Matrix Theory for Correlation Filtering](#68-random-matrix-theory-for-correlation-filtering)
 
 ---
 
 ## 1. Introduction & Motivation
 
-Quantitative equity trading has historically relied on two broad families of signals: *price-derived technical indicators* and *fundamental/macro data*. The last decade has seen a third pillar emerge — *alternative data*, including satellite imagery, credit card transactions, and web-scraped text. Of these, news sentiment derived from natural language processing has become particularly tractable due to the availability of large pre-trained language models. Simultaneously, the mathematics of algebraic topology has found application in data science through the field of Topological Data Analysis, which can characterize the "shape" of high-dimensional data in ways that traditional statistics cannot.
+Quantitative equity trading has historically relied on two broad families of signals: price-derived technical indicators and fundamental or macroeconomic data. The past decade has introduced a third pillar — alternative data, most notably text derived from news and social media. Simultaneously, the mathematics of algebraic topology has matured into a practical data analysis framework through the field of Topological Data Analysis (TDA), which can characterize the global "shape" of high-dimensional data in ways that point statistics cannot.
 
-This system was built to answer a practical question: can the combination of these three distinct information sources — classical technicals, NLP sentiment, and topological market-structure features — be distilled into a single learned representation by an LSTM and turned into a profitable trading strategy?
+This system was designed around a central observation from mathematical finance: during market crises, the joint distribution of cross-asset returns undergoes a phase transition. In normal regimes, assets exhibit a diverse correlation structure — returns span a rich high-dimensional subspace. During stress events such as the 2008 financial crisis or the March 2020 COVID crash, pairwise correlations abruptly spike toward unity, collapsing the effective dimensionality of the return distribution. This transition is a fundamentally geometric and topological event that cannot be captured by examining any single asset's time series in isolation.
 
-The key hypotheses motivating the design are:
+The three hypotheses motivating the design are:
 
-1. **LSTM over window-based models.** Markets exhibit temporal dependencies that span multiple timescales. An LSTM with a 30-day lookback can, in principle, learn multi-day momentum, reversal, and volatility clustering patterns that a single-day feature vector cannot represent.
+**H1 — LSTM over Markov models.** Markets exhibit temporal dependencies spanning multiple timescales simultaneously — intraday momentum, weekly mean-reversion, monthly earnings cycles, and multi-year macro regimes. An LSTM with a 30-day lookback can, in principle, learn multi-scale temporal structure via its gating mechanism, unlike autoregressive models with fixed lag structure.
 
-2. **Topological features as systemic risk proxies.** During market crises, cross-asset correlations spike and the geometry of the joint return distribution changes dramatically. Persistent homology, measured as the Wasserstein distance between consecutive persistence diagrams of the cross-asset return point cloud, should encode this regime shift as a single scalar that is otherwise absent from per-asset indicators.
+**H2 — Topology as a systemic risk proxy.** Persistent homology of the rolling cross-asset return point cloud captures the global correlation geometry of the market as a compact topological invariant. The Wasserstein distance between consecutive persistence diagrams measures the rate of change of this geometry — a signal of regime transition that is strictly non-local, encoding information about the entire universe of tracked assets simultaneously.
 
-3. **Sentiment as a leading indicator.** News headlines reflect the market's information set. FinBERT, trained specifically on financial text, can map sentiment polarity from news to a numerical signal that may lead price action by one or more days.
-
----
-
-## 2. System Architecture
-
-The system consists of two primary services connected over localhost HTTP, with all ML workloads running in the Python backend.
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     Blazor Server Frontend                    │
-│                        (.NET 9)                              │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Home.razor                                            │  │
-│  │                                                        │  │
-│  │  [Period Selector]  [Load History]  [Run Predictions]  │  │
-│  │                                                        │  │
-│  │        ┌──────────────────────────────────┐            │  │
-│  │        │   Portfolio Equity Line Chart    │            │  │
-│  │        │   (MudBlazor, interactive)       │            │  │
-│  │        └──────────────────────────────────┘            │  │
-│  │                                                        │  │
-│  │   ⚠  Crisis Alert  (shown when crisis_status=true)     │  │
-│  └────────────────────────────────────────────────────────┘  │
-└───────────────────────────┬──────────────────────────────────┘
-                            │ HTTP (127.0.0.1:8000)
-              POST /predict │ POST /portfolio_history
-                            │
-┌───────────────────────────▼──────────────────────────────────┐
-│                   Python FastAPI Backend                      │
-│                                                              │
-│  ┌─────────────┐  ┌───────────┐  ┌──────────────────────┐   │
-│  │  yfinance   │  │  ripser   │  │  ProsusAI/finbert    │   │
-│  │  OHLCV data │  │  Rips TDA │  │  News sentiment NLP  │   │
-│  └──────┬──────┘  └─────┬─────┘  └──────────┬───────────┘   │
-│         │               │                   │               │
-│         └───────────────┴───────────────────┘               │
-│                         │                                    │
-│                  ┌──────▼──────┐                             │
-│                  │  Feature    │                             │
-│                  │  Assembly   │  (30 × 10 per ticker)       │
-│                  └──────┬──────┘                             │
-│                         │                                    │
-│                  ┌──────▼──────┐                             │
-│                  │ lstm.keras  │  Keras LSTM                 │
-│                  └──────┬──────┘                             │
-│                         │ predicted log return per ticker    │
-│                  ┌──────▼──────┐                             │
-│                  │  Alpaca     │  Paper Trading API          │
-│                  │  Trading    │  buy / sell / hold          │
-│                  └─────────────┘                             │
-└──────────────────────────────────────────────────────────────┘
-```
-
-*Figure 2. High-level system architecture showing data flow from external sources through the feature pipeline, LSTM inference, and trade execution.*
+**H3 — FinBERT sentiment as a leading indicator.** The efficient market hypothesis posits that prices reflect all available information. However, the speed and completeness of information incorporation varies. News sentiment, scored by a model fine-tuned specifically on financial language, may encode forward-looking information that leads price action on the one-day horizon being predicted.
 
 ---
 
-## 3. Feature Engineering Pipeline
+## 2. Feature Engineering Pipeline
 
-### 3.1 Market Data Ingestion
+### 2.1 Market Data & Window Design
 
-For each prediction run, 90 calendar days of OHLCV data are downloaded for all tickers in `valid_tickers.csv` via the `yfinance` library. The date window is:
+For each prediction run, 90 calendar days of OHLCV (Open, High, Low, Close, Volume) data are downloaded for all tickers in the tracked universe via `yfinance`. The date window is:
 
 $$t_{\text{start}} = t_{\text{today}} - 90 \text{ days}, \quad t_{\text{end}} = t_{\text{today}}$$
 
-The 90-day window is sized to satisfy the following constraints simultaneously, accounting for the fact that only approximately $\frac{5}{7}$ of calendar days are trading days:
+The window length is not arbitrary. It is the minimum required to satisfy all downstream constraints simultaneously, given that only $\frac{5}{7}$ of calendar days are trading days:
 
-| Constraint | Days Required |
+| Constraint | Trading Days Required |
 |---|---|
-| LSTM prediction window | 30 trading days |
-| First row dropped (NaN from log return) | 1 |
+| LSTM lookback window | 30 |
+| First NaN from log return differentiation | 1 |
 | 21-day rolling indicator warm-up | 21 |
-| 30-day Wasserstein window warm-up | 30 |
-| Calendar-to-trading-day buffer | ~13 |
+| 30-day Wasserstein sliding window warm-up | 30 |
+| Calendar-to-trading-day conversion buffer | ~13 |
 | **Total (calendar days)** | **~90** |
-
-The raw download produces a multi-index DataFrame with columns `(ticker, field)`. This is immediately flattened to a single-level index `{ticker}_{field}` for downstream processing, then re-indexed on the `Date` column.
 
 ---
 
-### 3.2 Technical Indicators
+### 2.2 Technical Indicators
 
-Four scalar features are computed per ticker per day from the raw OHLCV data. Combined with the four raw price columns (O, H, L, C) and Volume, these form the per-asset component of the input feature vector.
+Four derived scalar features augment the raw OHLCV data per ticker per day.
 
 #### Relative Strength Index (RSI-14)
 
-The RSI, introduced by J. Welles Wilder, is a bounded momentum oscillator in $[0, 100]$. It measures the magnitude of recent gains relative to recent losses:
+The RSI is a bounded momentum oscillator $\text{RSI}_t \in [0, 100]$ introduced by Wilder (1978). Define the average gain and loss over a window of $W = 14$ days using the Smoothed Moving Average (SMMA):
 
-$$\text{RS}_t = \frac{\text{SMMA}(\text{gain}, 14)_t}{\text{SMMA}(\text{loss}, 14)_t}$$
+$$\overline{G}_t = \frac{1}{W}\sum_{i=0}^{W-1} \max(\Delta P_{t-i}, 0), \quad \overline{L}_t = \frac{1}{W}\sum_{i=0}^{W-1} \max(-\Delta P_{t-i}, 0)$$
 
-$$\text{RSI}_t = 100 - \frac{100}{1 + \text{RS}_t}$$
+$$\text{RS}_t = \frac{\overline{G}_t}{\overline{L}_t}, \quad \text{RSI}_t = 100 - \frac{100}{1 + \text{RS}_t}$$
 
-where $\text{SMMA}$ denotes the smoothed moving average, and gain/loss are the positive and negative daily price changes respectively. When the denominator is zero (no losses in the window), $\text{RS} = \infty$ and $\text{RSI} = 100$, representing a perfectly trending up asset.
-
-Values above 70 conventionally indicate overbought conditions; values below 30 indicate oversold.
+When $\overline{L}_t = 0$ (no losing days in the window), we set $\text{RS}_t = \infty$ and $\text{RSI}_t = 100$ by convention. Values above 70 indicate overbought conditions; below 30, oversold.
 
 #### Log Return
 
-The continuously compounded one-day log return is:
+The continuously compounded one-day log return:
 
-$$r_t = \ln\!\left(1 + \frac{P_t - P_{t-1}}{P_{t-1}}\right) = \ln\frac{P_t}{P_{t-1}}$$
+$$r_t = \ln\frac{P_t}{P_{t-1}} = \ln\!\left(1 + \frac{P_t - P_{t-1}}{P_{t-1}}\right)$$
 
-Log returns are preferred over simple returns because they are additive across time and closer to normally distributed for use in statistical models.
+Log returns are time-additive — the $k$-day return is $\sum_{i=1}^{k} r_{t-k+i}$ — and approximately Gaussian, making them preferable to simple returns for statistical models.
 
-#### Realized Volatility (21-day)
+#### Realized Volatility
 
-Annualized daily realized volatility is estimated as the rolling standard deviation of log returns:
+The 21-day realized volatility is the rolling standard deviation of log returns:
 
-$$\sigma_t = \sqrt{\frac{1}{W-1} \sum_{i=0}^{W-1} (r_{t-i} - \bar{r}_t)^2}, \quad W = 21$$
+$$\hat{\sigma}_t = \sqrt{\frac{1}{W-1} \sum_{i=0}^{W-1} (r_{t-i} - \bar{r}_t)^2}, \quad W = 21, \quad \bar{r}_t = \frac{1}{W}\sum_{i=0}^{W-1} r_{t-i}$$
 
-A 21-day window corresponds to approximately one calendar month of trading days, capturing medium-term volatility regime.
+This is an estimator of the latent instantaneous volatility under a local constant-volatility model, and captures medium-term volatility regime with a window of approximately one calendar month.
 
 #### Volume Z-Score
 
-To make volume comparable across tickers with vastly different float sizes, raw volume is standardized relative to its own recent history:
+To make volume comparable across tickers with heterogeneous float sizes and trading activity:
 
-$$Z_t^{\text{vol}} = \frac{V_t - \mu_t^{\text{vol}}}{\sigma_t^{\text{vol}}}, \quad \text{where } \mu, \sigma \text{ are 21-day rolling statistics}$$
+$$Z_t^V = \frac{V_t - \hat{\mu}_t^V}{\hat{\sigma}_t^V}$$
 
-A high positive $Z_t^{\text{vol}}$ indicates anomalously heavy trading activity, which often precedes or accompanies significant price moves.
+where $\hat{\mu}_t^V$ and $\hat{\sigma}_t^V$ are the 21-day rolling mean and standard deviation of raw volume respectively. A large positive $Z_t^V$ indicates anomalously elevated participation, which empirically tends to precede or accompany significant price dislocations.
 
 ---
 
-### 3.3 Topological Data Analysis
+### 2.3 Topological Data Analysis
 
-This is the most mathematically novel component of the pipeline. The core intuition is that during normal markets, the joint distribution of cross-asset returns has a stable "shape." During crises — such as the 2008 financial crisis or the March 2020 COVID crash — correlations among all assets suddenly spike toward 1, fundamentally changing the geometry of that distribution. Persistent homology provides a principled, parameter-free way to quantify this shape and detect when it changes.
+This is the mathematically central component of the system. The objective is to construct a compact, informative descriptor of the global correlation structure of the full S&P 500 universe on each trading day, using the machinery of algebraic topology.
 
 #### Point Cloud Construction
 
-At each time step $t$, a sliding window of width $W = 30$ days is extracted from the log-return matrix:
+At each time step $t$, a sliding window of width $W = 30$ days is extracted from the log-return matrix across all $N$ tracked tickers:
 
-$$\mathbf{M}_{t} \in \mathbb{R}^{W \times N}, \quad W = 30, \; N = \text{number of tickers}$$
+$$\mathbf{M}_{t} \in \mathbb{R}^{W \times N}$$
 
-Each row $\mathbf{M}_{t}^{(d)} \in \mathbb{R}^{N}$ is a vector of all tickers' log returns on day $d$. The 30 rows of $\mathbf{M}_t$ form a *point cloud* of 30 points in $N$-dimensional return space.
+Each row $\mathbf{m}_t^{(d)} \in \mathbb{R}^N$ represents the joint log-return vector across all tickers on day $d$ within the window. The $W = 30$ rows of $\mathbf{M}_t$ constitute a *point cloud* $\mathcal{X}_t = \{\mathbf{m}_t^{(1)}, \ldots, \mathbf{m}_t^{(30)}\} \subset \mathbb{R}^N$.
+
+The geometry of $\mathcal{X}_t$ encodes the joint distribution of returns over the window. In normal markets, when assets exhibit diverse and varying correlations, the point cloud is spread across many dimensions — it has complex shape. During a crisis, when all correlations spike toward unity, the points collapse onto a nearly one-dimensional manifold: the geometry simplifies catastrophically.
+
+#### Simplicial Homology Background
+
+Before defining the filtration, we briefly recall the homological algebra underlying persistence. Given a simplicial complex $K$, the $k$-th chain group $C_k(K; \mathbb{F})$ is the $\mathbb{F}$-vector space freely generated by the oriented $k$-simplices of $K$, where $\mathbb{F} = \mathbb{Z}/2\mathbb{Z}$ is the field of coefficients used here.
+
+The boundary operator $\partial_k : C_k \to C_{k-1}$ maps each $k$-simplex to the formal sum of its $(k-1)$-faces:
+
+$$\partial_k([v_0, \ldots, v_k]) = \sum_{i=0}^{k} (-1)^i [v_0, \ldots, \hat{v}_i, \ldots, v_k]$$
+
+where $\hat{v}_i$ denotes omission. The fundamental identity $\partial_{k-1} \circ \partial_k = 0$ (boundaries have no boundary) defines the chain complex:
+
+$$\cdots \xrightarrow{\partial_{k+1}} C_k \xrightarrow{\partial_k} C_{k-1} \xrightarrow{\partial_{k-1}} \cdots$$
+
+The $k$-th homology group is the quotient:
+
+$$H_k(K; \mathbb{F}) = \ker \partial_k \,/\, \text{im}\, \partial_{k+1}$$
+
+Intuitively: $k$-cycles ($\ker \partial_k$) are $k$-dimensional "closed loops"; $k$-boundaries ($\text{im}\, \partial_{k+1}$) are those that bound a $(k+1)$-dimensional region. The homology $H_k$ counts topological features that are "holes" — cycles that are not boundaries. The Betti number $\beta_k = \dim H_k$ counts connected components ($\beta_0$), independent loops ($\beta_1$), enclosed voids ($\beta_2$), and so on.
 
 #### Vietoris-Rips Filtration
 
-The Vietoris-Rips filtration is a nested sequence of simplicial complexes $\mathcal{R}(\epsilon)$ built from the point cloud. At scale $\epsilon$:
+Given the point cloud $\mathcal{X}_t$ with a metric $d$, the Vietoris-Rips complex at scale $\epsilon$ is:
 
-$$\sigma \in \mathcal{R}(\epsilon) \iff d(x_i, x_j) \leq \epsilon \quad \forall\, x_i, x_j \in \sigma$$
+$$\mathcal{R}_\epsilon(\mathcal{X}_t) = \left\{ \sigma \subseteq \mathcal{X}_t \;:\; d(x_i, x_j) \leq \epsilon \;\;\forall\, x_i, x_j \in \sigma \right\}$$
 
-That is, a simplex is included when all its vertices are within distance $\epsilon$ of each other. As $\epsilon$ increases from 0 to $\infty$, topological features (connected components, loops, voids) are born and die. The set of (birth, death) pairs for $k$-dimensional features is called the **persistence diagram** $\text{PD}_k$.
+As $\epsilon$ increases from $0$ to $\infty$, this produces a nested family of complexes — a *filtration*:
 
-The `ripser` library computes this filtration efficiently up to `maxdim=2`, yielding diagrams for $H_0$ (connected components), $H_1$ (loops/cycles), and $H_2$ (voids).
+$$\emptyset = \mathcal{R}_0 \subseteq \mathcal{R}_{\epsilon_1} \subseteq \mathcal{R}_{\epsilon_2} \subseteq \cdots \subseteq \mathcal{R}_\infty = \Delta^{|\mathcal{X}_t|-1}$$
 
-#### Wasserstein Distance as a Temporal Feature
+Applying simplicial homology at each scale and tracking how homology classes are born and die across the filtration is the content of **persistent homology**. A class born at scale $b$ and dying at scale $d > b$ contributes a point $(b, d)$ to the $k$-th persistence diagram $\text{PD}_k(\mathcal{X}_t)$. The persistence $d - b$ measures the "lifetime" of that feature — long-lived features are topologically significant, while short-lived ones correspond to noise.
 
-To obtain a single time-series feature, the **Wasserstein distance** (also called the Earth Mover's Distance) between consecutive $H_1$ persistence diagrams is computed:
+The `ripser` library computes this filtration up to `maxdim = 2` via the reduction algorithm on the coboundary matrix, yielding $\text{PD}_0$, $\text{PD}_1$, and $\text{PD}_2$.
 
-$$W_t = W_2\!\left(\text{PD}_1^{(t)},\; \text{PD}_1^{(t-1)}\right)$$
+#### Wasserstein Distance Between Persistence Diagrams
 
-The $p$-Wasserstein distance between two persistence diagrams is:
+To convert the sequence of persistence diagrams $\{\text{PD}_1^{(t)}\}$ into a scalar time series, we compute the **$p$-Wasserstein distance** between consecutive $H_1$ diagrams. For two persistence diagrams $A$ and $B$, viewed as multisets of points in the extended half-plane $\bar{\mathbb{R}}^2_+ = \{(b,d) : b \leq d\}$:
 
-$$W_p(\text{PD}_1, \text{PD}_2) = \left[ \inf_{\gamma \in \Gamma} \sum_{x \in \text{PD}_1} \lVert x - \gamma(x) \rVert_\infty^p \right]^{1/p}$$
+$$d_{W_p}(A, B) = \left[\inf_{\gamma \in \Gamma(A,B)} \sum_{x \in A} \|x - \gamma(x)\|_\infty^p \right]^{1/p}$$
 
-where $\Gamma$ is the set of all bijections between points in $\text{PD}_1$ and points in $\text{PD}_2$ (extended with the diagonal to handle unequal sizes), and $\lVert \cdot \rVert_\infty$ is the $L^\infty$ norm. Intuitively, $W_t$ measures the minimum "cost" to transport one diagram's point mass to match the other's.
+where $\Gamma(A,B)$ is the set of bijections between $A$ and $B$ augmented with the diagonal $\Delta = \{(b,b) : b \in \mathbb{R}\}$ (to handle diagrams of unequal cardinality — any unmatched point is matched to its nearest diagonal projection). The $L^\infty$ ground metric is used: $\|(b_1,d_1) - (b_2,d_2)\|_\infty = \max(|b_1-b_2|, |d_1-d_2|)$.
 
-A large $W_t$ means the topological structure of the joint return distribution changed significantly between window $t-1$ and window $t$ — a signal of market structural instability.
+The temporal feature used in this system is $p = 2$:
 
-The resulting scalar time series $\{W_t\}$ is aligned to the date index and appended as the `Wasserstein` feature column shared across all tickers.
+$$W_t = d_{W_2}\!\left(\text{PD}_1^{(t)},\; \text{PD}_1^{(t-1)}\right)$$
 
-#### Why $H_1$ (Loops)?
+This measures the minimum cost — in an Earth Mover's sense — to deform one $H_1$ diagram into the next. A large $W_t$ indicates a substantial rearrangement of the loop structure in the return point cloud between consecutive windows: a topological regime change.
 
-While $H_0$ captures clustering (number of connected components in the return graph) and $H_2$ captures voids, $H_1$ captures *cycles* — closed loops in the data manifold. In market terms, $H_1$ features correspond to approximate cyclic relationships among return vectors. These tend to be the features most sensitive to changes in correlation structure: when correlations spike in a crisis, the loops in the point cloud collapse, producing a large Wasserstein distance.
+The resulting scalar series $\{W_t\}$ is joined to the finance DataFrame as a market-wide (not per-ticker) column shared across all tickers' input vectors.
 
----
+#### Why $H_1$ over $H_0$ and $H_2$?
 
-### 3.4 News Sentiment Analysis
+$H_0$ tracks connected components. In the return point cloud, $H_0$ changes are dominated by isolated outlier trading days detaching from the main cluster — sensitive to noise rather than systemic structure. $H_2$ tracks enclosed voids; in 30-point clouds embedded in hundreds of dimensions, well-defined 2-dimensional voids are rare and computationally fragile. $H_1$ — tracking loops or cycles in the point cloud — is the most sensitive to changes in the correlation graph structure. In a diversified market, the point cloud has a rich arrangement of loops reflecting the complex web of partial correlations between sectors. When correlations collapse in a crisis, these loops vanish. The $H_1$ Wasserstein distance is therefore the most discriminating topological feature for regime detection.
 
-For each ticker, a Google News RSS query is constructed:
+#### Empirical Validation on Historical Data
 
-```
-"{company_name} after:{start_date} before:{end_date}"
-```
-
-For single-letter or very short tickers (e.g., `A` for Agilent Technologies), `" stock"` is appended to disambiguate from common English words. Company names are resolved from `symbol_to_security.pkl`, a pre-built dictionary mapping each ticker symbol to its full security name.
-
-#### FinBERT
-
-Headlines are scored using **ProsusAI/finbert**, a BERT-base model fine-tuned on the Financial PhraseBank dataset of 4,840 manually annotated financial news sentences. The model outputs a three-class probability distribution over `{positive, neutral, negative}`, and the argmax label is extracted:
-
-$$\hat{y} = \arg\max_{c \in \{+, 0, -\}} P(c \mid \text{headline})$$
-
-Labels are then mapped to a numeric score for use as a continuous feature:
-
-| Label | Numeric |
-|---|---|
-| `positive` | $+1$ |
-| `neutral` | $0$ |
-| `negative` | $-1$ |
-
-When multiple headlines exist for a ticker on a given date, the first occurrence is used (after deduplication by date). For dates with no articles, the sentiment value is `NaN`, which propagates into the LSTM as a zero after scaling.
-
-Headlines are processed in batches of 8 using the Hugging Face `pipeline` API, with periodic garbage collection to manage memory usage of the ~440M parameter BERT model. Both the raw headlines and the scored sentiment DataFrames are cached to CSVs keyed by the date range.
-
----
-
-## 4. LSTM Model
-
-### 4.1 Architecture
-
-The model (`lstm.keras`) is a Long Short-Term Memory network, a class of recurrent neural network specifically designed to learn long-range sequential dependencies via its gating mechanism.
-
-An LSTM cell at time step $t$ maintains a hidden state $\mathbf{h}_t$ and a cell state $\mathbf{c}_t$, updated by three learned gates:
-
-$$\mathbf{f}_t = \sigma(\mathbf{W}_f \cdot [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_f) \quad \text{(forget gate)}$$
-
-$$\mathbf{i}_t = \sigma(\mathbf{W}_i \cdot [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_i) \quad \text{(input gate)}$$
-
-$$\mathbf{o}_t = \sigma(\mathbf{W}_o \cdot [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_o) \quad \text{(output gate)}$$
-
-$$\mathbf{c}_t = \mathbf{f}_t \odot \mathbf{c}_{t-1} + \mathbf{i}_t \odot \tanh(\mathbf{W}_c \cdot [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_c)$$
-
-$$\mathbf{h}_t = \mathbf{o}_t \odot \tanh(\mathbf{c}_t)$$
-
-where $\sigma$ is the sigmoid function and $\odot$ denotes element-wise multiplication. The forget gate $\mathbf{f}_t$ controls how much of the previous cell state is retained, allowing the network to learn when to "reset" its memory — important for capturing the difference between trending and mean-reverting regimes.
-
-See `model/model.ipynb` for the full architecture definition, layer sizes, and training configuration.
-
-### 4.2 Input Tensor Construction
-
-For each ticker, the most recent 30 rows of the feature DataFrame are extracted and stacked into a window. All tickers are batched into a 3D tensor:
-
-$$\mathbf{X} \in \mathbb{R}^{N_{\text{tickers}} \times T \times F}, \quad T = 30, \; F = 10$$
-
-Before stacking, the 9 per-asset features (all except Wasserstein, which is market-wide) are standardized using the `StandardScaler` fitted during training:
-
-$$\tilde{x}_{i,t,f} = \frac{x_{i,t,f} - \mu_f}{\sigma_f}$$
-
-where $\mu_f$ and $\sigma_f$ are the training-set mean and standard deviation for feature $f$. This ensures that each feature contributes comparably regardless of its natural scale (e.g., RSI lives in $[0,100]$ while log returns are in $[-0.1, 0.1]$).
-
-The 10 input features per timestep, in their standardized form, are:
-
-| # | Feature | Raw Scale | Captures |
-|---|---|---|---|
-| 1 | `Close` | USD | Absolute price level |
-| 2 | `High` | USD | Intraday range upper bound |
-| 3 | `Low` | USD | Intraday range lower bound |
-| 4 | `Open` | USD | Gap-open dynamics |
-| 5 | `RSI_14` | $[0, 100]$ | Momentum / overbought-oversold |
-| 6 | `Volatility_21` | Decimal | Volatility regime |
-| 7 | `Volume` | Shares | Liquidity / participation |
-| 8 | `Volume_Z` | Std devs | Anomalous volume |
-| 9 | `Sentiment` | $\{-1, 0, +1\}$ | News flow direction |
-| 10 | `Wasserstein` | Positive real | Market topology / systemic risk |
-
-### 4.3 Target Variable
-
-The model is trained to predict the one-day-ahead log return:
-
-$$y_{i,t} = r_{i, t+1} = \ln \frac{P_{i,t+1}}{P_{i,t}}$$
-
-At inference time, the model outputs $\hat{y}_i$ for each ticker $i$. This is a regression output — the predicted continuously compounded return for the next trading day.
-
----
-
-## 5. Trading Strategy & Signal Logic
-
-### 5.1 Crisis Detection
-
-After inference, a secondary analysis is run on the Wasserstein distance series to detect potential market crises. Let $\{W_t\}$ be the full series of Wasserstein distances over the 90-day window. The most recent value $W_T$ is compared against two thresholds:
-
-$$\text{crisis} = \mathbb{1}\!\left[W_T > \mu_W + 2\sigma_W\right] \;\lor\; \mathbb{1}\!\left[W_T > Q_{0.95}(\{W_t\})\right]$$
-
-where $\mu_W$ and $\sigma_W$ are the mean and standard deviation of the full series, and $Q_{0.95}$ is the 95th percentile. The OR of these two conditions is used because the standard-deviation threshold is sensitive to the distributional shape of $W$, while the percentile threshold is more robust to outliers from prior crises in the window.
-
-When a crisis is detected, `crisis_status = true` is returned to the frontend and a warning banner is displayed. Importantly, **trading is not automatically suspended** when a crisis is detected — the flag is informational, allowing a human operator to interpret the signal in context.
-
-A historical analysis of this indicator on actual S&P 500 data confirms that significant spikes in $H_1$ Wasserstein distance correspond to macro stress events. The plots below are generated from this pipeline on historical data.
+The following plots show the normalized $H_1$ Wasserstein distance (blue) overlaid against the S&P 500 index (orange) over the 2007–2010 period, computed from this pipeline on historical data.
 
 <div align="center">
 
 ![Homology Changes Around 2008 Crash](assets/homology_2008_crash.png)
 
-*Figure 4. Normalized Wasserstein distance (blue) vs. S&P 500 index (orange) around the 2008 financial crisis. The Wasserstein distance spikes sharply at the crash (red dashed line), capturing the sudden collapse in cross-asset correlation structure.*
+*Figure 2. The Wasserstein distance spikes sharply at the Lehman Brothers collapse (red dashed line, September 2008), capturing the sudden collapse in cross-asset correlation structure. Note the elevated but chaotic Wasserstein activity throughout 2008 as the credit crisis developed, culminating in the spike at the acute phase.*
 
 </div>
 
@@ -340,291 +203,262 @@ A historical analysis of this indicator on actual S&P 500 data confirms that sig
 
 ![Homology Changes Predicted Crash](assets/homology_2009_predicted.png)
 
-*Figure 5. The same indicator over the extended 2008–2009 period. The Wasserstein distance begins spiking before the market bottom in March 2009 (red dashed line), suggesting the topological signal may lead price action — the topology of the return manifold destabilizes before the index reaches its trough.*
+*Figure 3. The same indicator over the full GFC episode through the March 2009 market trough. The Wasserstein distance begins spiking in mid-2008 — several months before the index reaches its nadir — suggesting the topological signal leads price action. The topology of the return manifold destabilizes before the index reaches its lowest point, potentially offering early warning of the market bottom.*
 
 </div>
 
-### 5.2 Order Execution
+These plots empirically support the key hypothesis: the $H_1$ Wasserstein distance encodes systemic information about cross-asset correlation geometry that precedes or coincides with extreme market events.
 
-The signal generation and execution logic is straightforward. Given the set of predicted log returns $\{\hat{y}_i\}$ and the current Alpaca portfolio positions $\mathcal{P}$:
+---
+
+### 2.4 News Sentiment via FinBERT
+
+For each ticker, headlines are retrieved from the Google News RSS feed using a date-bounded search query. Headlines are scored using **ProsusAI/finbert**, a BERT-base encoder (12 transformer layers, 768 hidden dimensions, 110M parameters) fine-tuned on the Financial PhraseBank — a dataset of 4,840 financial news sentences annotated by finance professionals.
+
+The model computes a three-class softmax over the label set $\mathcal{C} = \{\text{positive}, \text{neutral}, \text{negative}\}$:
+
+$$P(c \mid \mathbf{h}_{\texttt{[CLS]}}) = \text{softmax}(\mathbf{W}_c \, \mathbf{h}_{\texttt{[CLS]}} + \mathbf{b}_c)$$
+
+where $\mathbf{h}_{\texttt{[CLS]}} \in \mathbb{R}^{768}$ is the final hidden state of the `[CLS]` token, which aggregates sentence-level context via the bidirectional self-attention mechanism across all 12 layers.
+
+The argmax label is extracted and mapped to a numeric score:
+
+$$s_t^i = \begin{cases} +1 & \arg\max_c P(c \mid \text{headline}_{t}^{i}) = \text{positive} \\ 0 & \text{neutral} \\ -1 & \text{negative} \end{cases}$$
+
+This ternary encoding is a deliberate simplification — the full probability distribution $P(\cdot \mid \text{headline})$ could instead be used as a richer three-dimensional feature vector, which is one avenue for future improvement.
+
+---
+
+## 3. LSTM Model
+
+### 3.1 Recurrent Architecture & Gating
+
+The model (`lstm.keras`) is a Long Short-Term Memory network. Unlike vanilla RNNs, which suffer from vanishing gradients over long sequences and therefore cannot learn dependencies beyond a few time steps, the LSTM maintains a separate cell state $\mathbf{c}_t$ that can in principle carry information across the full sequence length without multiplicative gradient attenuation.
+
+An LSTM cell processes an input $\mathbf{x}_t \in \mathbb{R}^F$ at each time step via three learned gates and a candidate cell update:
+
+$$\mathbf{f}_t = \sigma(\mathbf{W}_f [\mathbf{h}_{t-1};\, \mathbf{x}_t] + \mathbf{b}_f) \quad \text{(forget gate: what to erase from } \mathbf{c}_{t-1}\text{)}$$
+
+$$\mathbf{i}_t = \sigma(\mathbf{W}_i [\mathbf{h}_{t-1};\, \mathbf{x}_t] + \mathbf{b}_i) \quad \text{(input gate: what new information to write)}$$
+
+$$\mathbf{o}_t = \sigma(\mathbf{W}_o [\mathbf{h}_{t-1};\, \mathbf{x}_t] + \mathbf{b}_o) \quad \text{(output gate: what to expose from the cell)}$$
+
+$$\tilde{\mathbf{c}}_t = \tanh(\mathbf{W}_c [\mathbf{h}_{t-1};\, \mathbf{x}_t] + \mathbf{b}_c) \quad \text{(candidate cell state)}$$
+
+$$\mathbf{c}_t = \mathbf{f}_t \odot \mathbf{c}_{t-1} + \mathbf{i}_t \odot \tilde{\mathbf{c}}_t \quad \text{(cell state update)}$$
+
+$$\mathbf{h}_t = \mathbf{o}_t \odot \tanh(\mathbf{c}_t) \quad \text{(hidden state / output)}$$
+
+where $\sigma$ is the logistic sigmoid, $\odot$ denotes element-wise (Hadamard) product, and $[\mathbf{a}; \mathbf{b}]$ denotes vector concatenation. All weight matrices $\mathbf{W}_\star$ and bias vectors $\mathbf{b}_\star$ are learned during training via backpropagation through time (BPTT).
+
+The forget gate $\mathbf{f}_t$ is particularly important for financial time series: it allows the network to learn when to "reset" its memory — for example, after a gap event or earnings announcement — versus when to accumulate momentum information across many steps.
+
+### 3.2 Input Tensor & Feature Standardization
+
+Each ticker's feature matrix over the 30-day prediction window is assembled as:
+
+$$\mathbf{X}_i \in \mathbb{R}^{T \times F}, \quad T = 30, \; F = 10$$
+
+All $N$ tickers are stacked into a single 3D batch tensor for efficient parallel inference:
+
+$$\mathbf{X} \in \mathbb{R}^{N \times T \times F}$$
+
+Before assembly, each feature is standardized using the training-set mean and standard deviation (stored in `scaler.pkl`):
+
+$$\tilde{x}_{i,t,f} = \frac{x_{i,t,f} - \mu_f}{\sigma_f}$$
+
+This is critical for LSTM stability — without normalization, features with different natural scales (e.g., Close prices in hundreds of dollars versus log returns in $[-0.1, 0.1]$) would require drastically different gradient magnitudes, destabilizing the gating mechanism.
+
+The 10 input features per timestep are:
+
+| # | Feature | Raw Domain | Information |
+|---|---|---|---|
+| 1 | `Close` | $\mathbb{R}_{>0}$ (USD) | Absolute price level |
+| 2 | `High` | $\mathbb{R}_{>0}$ (USD) | Intraday upper range |
+| 3 | `Low` | $\mathbb{R}_{>0}$ (USD) | Intraday lower range |
+| 4 | `Open` | $\mathbb{R}_{>0}$ (USD) | Gap-open dynamics |
+| 5 | `RSI_14` | $[0, 100]$ | Momentum / mean-reversion state |
+| 6 | `Volatility_21` | $\mathbb{R}_{\geq 0}$ | Volatility regime |
+| 7 | `Volume` | $\mathbb{Z}_{>0}$ (shares) | Liquidity / market participation |
+| 8 | `Volume_Z` | $\mathbb{R}$ (std devs) | Anomalous volume signal |
+| 9 | `Sentiment` | $\{-1, 0, +1\}$ | FinBERT news polarity |
+| 10 | `Wasserstein` | $\mathbb{R}_{\geq 0}$ | Market topology / systemic risk |
+
+Note that features 1–9 are *per-asset* (different values for each ticker), while feature 10 is *market-wide* (identical across all tickers on a given day). This asymmetry is intentional: the Wasserstein distance characterizes the joint state of the entire market, which provides the same regime context to every asset's prediction.
+
+### 3.3 Target Variable
+
+The model is trained on supervised regression to predict the one-day-ahead log return:
+
+$$y_{i,t} = r_{i,t+1} = \ln \frac{P_{i,t+1}}{P_{i,t}}$$
+
+At inference time, the model outputs a scalar $\hat{y}_i$ per ticker — the predicted continuously compounded return. This is a *point estimate* of the return distribution's mean; the model does not currently output uncertainty estimates, which is an important limitation discussed in §6.
+
+---
+
+## 4. Trading Strategy & Signal Logic
+
+### 4.1 Crisis Detection via Wasserstein Thresholding
+
+After inference, a secondary analysis detects potential market crises from the 90-day Wasserstein series $\{W_t\}_{t=1}^{T}$. The most recent value $W_T$ is compared against two simultaneous thresholds:
+
+$$\text{crisis} = \mathbb{1}\!\left[W_T > \mu_W + 2\sigma_W\right] \;\lor\; \mathbb{1}\!\left[W_T > Q_{0.95}(\{W_t\})\right]$$
+
+where $\mu_W = \frac{1}{T}\sum_t W_t$ and $\sigma_W^2 = \frac{1}{T-1}\sum_t (W_t - \mu_W)^2$ are the sample mean and variance of the full window, and $Q_{0.95}$ denotes the 95th empirical quantile.
+
+The disjunction of two complementary criteria is deliberate. The $\mu + 2\sigma$ threshold assumes approximate Gaussianity of $\{W_t\}$ — under this assumption, it flags the top $\approx 2.5\%$ of values. However, the empirical distribution of Wasserstein distances is right-skewed (large crises produce extreme outliers that inflate $\sigma_W$, widening the threshold and reducing sensitivity). The percentile threshold is resistant to this effect, providing a more robust tail detector. Together they reduce both false negatives (missed crises) and false positives (false alarms from high-volatility-of-volatility regimes).
+
+When a crisis is detected, `crisis_status = true` is returned and displayed as a warning banner in the dashboard. **Trading is not automatically suspended** — the flag is informational, allowing human judgment to interpret the signal in context.
+
+### 4.2 Order Execution
+
+Given the vector of predicted log returns $\{\hat{y}_i\}$ and current Alpaca portfolio positions $\mathcal{P}$, the signal rule is:
 
 $$\text{action}(i) = \begin{cases} \text{BUY} & \hat{y}_i \geq \tau \;\land\; i \notin \mathcal{P} \\ \text{HOLD} & \hat{y}_i \geq \tau \;\land\; i \in \mathcal{P} \\ \text{SELL} & \hat{y}_i < \tau \;\land\; i \in \mathcal{P} \\ \text{SKIP} & \hat{y}_i < \tau \;\land\; i \notin \mathcal{P} \end{cases}$$
 
-where $\tau = 0.004$ (approximately $+0.4\%$ expected log return) is the buy threshold.
+where $\tau = 0.004$ is the buy threshold (approximately $+0.4\%$ expected log return). For BUY orders, the share quantity is:
 
-For BUY orders, the number of shares is computed as:
+$$q_i = \left\lfloor \frac{B}{P_i^{\text{last}}} \right\rfloor, \quad B = \$1{,}000$$
 
-$$q_i = \left\lfloor \frac{B}{P_i^{\text{last}}} \right\rfloor$$
+All orders are market orders with `time_in_force = day`. Before executing, the Alpaca activity log is queried to enforce a once-per-day execution guarantee:
 
-where $B = \$1{,}000$ is the fixed notional per trade and $P_i^{\text{last}}$ is the last available closing price. All orders are submitted as **market orders** with `time_in_force = day` — they execute at the open of the next trading session and expire if unfilled.
-
-#### Duplicate-Trade Guard
-
-To prevent re-executing the same day's strategy if the pipeline is invoked multiple times, the Alpaca activity log is queried for `FILL` events prior to execution:
-
-$$\text{execute} \iff \lnot \exists \, a \in \text{Activities} : \text{date}(a) = t_{\text{today}}^{\text{EST}}$$
-
-The date comparison is performed in US/Eastern timezone, consistent with equity market trading hours.
+$$\text{execute} \iff \lnot\, \exists\, a \in \text{Activities} : \text{date}(a) = t_{\text{today}}^{\text{EST}}$$
 
 ---
 
-## 6. System Components & Setup
+## 5. Setup
 
-### 6.1 Project Structure
-
-```
-LSTM-Market-Predictor/
-│
-├── README.md
-├── .gitignore
-├── SP500_tickernames.txt              # Reference list of S&P 500 symbols
-│
-├── model/                             # Training artifacts and research notebooks
-│   ├── model.ipynb                    # LSTM architecture definition and training loop
-│   ├── prepare_training_data.ipynb    # Full feature engineering for the training set
-│   ├── test_inference_model.ipynb     # Inference validation and output inspection
-│   ├── test.ipynb                     # Scratch exploration
-│   ├── lstm.keras                     # Production model weights (gitignored)
-│   ├── lstm-old.keras                 # Prior model version for rollback (gitignored)
-│   ├── model_lstm_nosentiment.h5      # Ablation: trained without sentiment feature (gitignored)
-│   ├── scaler.pkl                     # Fitted StandardScaler (gitignored)
-│   ├── symbol_to_security.pkl         # Ticker → company name mapping (gitignored)
-│   ├── X_all.npy.zip                  # Training feature tensor (gitignored)
-│   └── y_all.npy                      # Training target vector (gitignored)
-│
-└── src/
-    ├── frontend/                      # .NET 9 Blazor Server application
-    │   ├── frontend.csproj
-    │   ├── Program.cs                 # Service registration and HTTP client setup
-    │   ├── appsettings.json           # Logging config and backend URL
-    │   └── Components/
-    │       ├── App.razor
-    │       ├── Routes.razor
-    │       ├── _Imports.razor
-    │       ├── Layout/
-    │       │   ├── MainLayout.razor
-    │       │   └── NavMenu.razor
-    │       └── Pages/
-    │           ├── Home.razor         # Dashboard: chart, controls, crisis alert
-    │           └── Error.razor
-    │
-    └── model-backend/                 # Python FastAPI inference server
-        ├── server.py                  # All pipeline, inference, and trading logic
-        ├── requirements.txt           # Pinned Python dependencies
-        ├── valid_tickers.csv          # Active ticker universe
-        └── .env                       # Alpaca API credentials (never commit)
-```
-
-### 6.2 Prerequisites
-
-| Requirement | Version | Purpose |
-|---|---|---|
-| Python | 3.10+ | Backend runtime |
-| .NET SDK | 9.0 | Frontend runtime |
-| Alpaca Markets account | — | Paper trading API (free) |
-| Model files | — | `lstm.keras`, `scaler.pkl`, `symbol_to_security.pkl` |
-
-The Python backend has significant hardware requirements for the FinBERT sentiment pass. An Apple Silicon Mac (M-series) will use MPS acceleration. A CUDA GPU will accelerate BERT inference substantially. CPU-only is supported but slow.
-
-### 6.3 Backend Setup
-
+**Backend (Python):**
 ```bash
 cd src/model-backend
-
-# Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# Install dependencies
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# Place model files in src/model-backend/
-# lstm.keras, scaler.pkl, symbol_to_security.pkl
-
-# Create .env with Alpaca paper trading credentials
-# (available at alpaca.markets → Paper Trading → API Keys)
-echo "ALPACA_API_KEY=your_key_here" >> .env
-echo "ALPACA_SECRET_KEY=your_secret_here" >> .env
-
-# Start the server
-uvicorn server:app --host 127.0.0.1 --port 8000 --reload
+# Place lstm.keras, scaler.pkl, symbol_to_security.pkl in src/model-backend/
+# Add ALPACA_API_KEY and ALPACA_SECRET_KEY to src/model-backend/.env
+uvicorn server:app --host 127.0.0.1 --port 8000
 ```
 
-Interactive API documentation is auto-generated by FastAPI at `http://127.0.0.1:8000/docs`.
-
-### 6.4 Frontend Setup
-
+**Frontend (.NET 9 Blazor):**
 ```bash
-cd src/frontend
-dotnet run
+cd src/frontend && dotnet run
 ```
 
-The dashboard will be available at `https://localhost:5001` (exact port shown in terminal output).
+The backend URL is configured in `src/frontend/appsettings.json` under `Backend:BaseUrl`. Model and strategy parameters (buy threshold $\tau$, notional $B$, window sizes) are hardcoded constants in `src/model-backend/server.py`.
 
 ---
 
-## 7. Configuration Reference
+## 6. Future Work: Advanced Mathematics
 
-### Backend URL
+The current implementation uses the $H_1$ Wasserstein distance as a single scalar summary of market topology. This is a deliberate first step — it demonstrates the viability of topological features in this setting — but it discards an enormous amount of the mathematical structure available. The following directions represent both natural extensions and fundamentally new frameworks.
 
-Configured in `src/frontend/appsettings.json`:
+### 6.1 Multiparameter Persistence
 
-```json
-{
-  "Backend": {
-    "BaseUrl": "http://127.0.0.1:8000"
-  }
-}
-```
+The current pipeline uses *one-parameter* persistence: homology is tracked as a function of a single filtration parameter $\epsilon$ (the Rips scale). A natural and more expressive generalization is **multiparameter persistent homology**, where homology is tracked over a multi-dimensional filtration parameter space.
 
-### Ticker Universe
+For market data, the most natural two-parameter filtration combines the Rips scale $\epsilon$ with a density filtration $\nu$. Define the density of a point $x \in \mathcal{X}$ at scale $r$ as:
 
-Edit `src/model-backend/valid_tickers.csv`. Each row after the header is a tracked ticker:
+$$\rho_r(x) = \frac{|\{y \in \mathcal{X} : d(x,y) \leq r\}|}{|\mathcal{X}|}$$
 
-```csv
-ticker
-AAPL
-MSFT
-NVDA
-```
+The two-parameter Rips-density filtration $\mathcal{R}_{(\epsilon, \nu)}$ includes a simplex $\sigma$ only when its Rips condition is satisfied *and* all its vertices have density at least $\nu$. This filters out topological features arising from low-density outlier points — a significant noise reduction compared to one-parameter Rips applied to raw return data.
 
-### Model & Strategy Parameters
+The algebraic output is no longer a collection of intervals (barcodes) but a **persistence module** over the poset $(\mathbb{R}^2, \leq)$:
 
-| Parameter | Location | Default | Description |
-|---|---|---|---|
-| `buy_threshold` $\tau$ | `server.py` `alpaca_trading()` | `0.004` | Minimum $\hat{y}_i$ to trigger a buy |
-| `buy_amount_usd` $B$ | `server.py` `alpaca_trading()` | `1000` | Notional per buy order (USD) |
-| `window_rsi` | `server.py` `predict_buy_sell()` | `14` | RSI lookback (days) |
-| `window_vol` | `server.py` `predict_buy_sell()` | `21` | Volatility / volume z-score window (days) |
-| `window_wasserstein` $W$ | `server.py` `predict_buy_sell()` | `30` | Sliding window for TDA computation (days) |
-| `maxdim` | `server.py` `predict_buy_sell()` | `2` | Max homology dimension for Rips filtration |
-| `eps` | `server.py` `predict_buy_sell()` | `0.5` | Scale parameter for Betti number computation |
+$$\mathbb{M} : (\epsilon, \nu) \mapsto H_k(\mathcal{R}_{(\epsilon,\nu)})$$
 
----
+The theory of multiparameter persistence is substantially harder than the one-parameter case: there is no complete discrete invariant analogous to the barcode, and the space of persistence modules does not admit a unique decomposition. Current practical approaches use **fibered barcodes** (one-parameter slices through the 2D parameter space) or the **rank invariant** $\xi(\mathbf{u}, \mathbf{v}) = \text{rank}(H_k(\mathcal{R}_\mathbf{u}) \to H_k(\mathcal{R}_\mathbf{v}))$, which is stable but not complete. Incorporating multiparameter features would allow the model to separately characterize topology at different density/scale combinations, potentially distinguishing core-market from peripheral-stock behavior within the same filtration.
 
-## 8. API Reference
+### 6.2 Persistent Laplacians & Spectral TDA
 
-All endpoints served at `http://127.0.0.1:8000`. Full Swagger UI at `/docs`.
+The **combinatorial Laplacian** (Hodge Laplacian) of a simplicial complex $K$ at dimension $k$ is:
 
----
+$$\mathbf{L}_k = \partial_{k+1} \partial_{k+1}^T + \partial_k^T \partial_k$$
 
-### `GET /`
+where $\partial_k$ is the boundary matrix. The spectrum of $\mathbf{L}_k$ encodes both topological and geometric information: the kernel $\ker \mathbf{L}_k \cong H_k(K)$ recovers homology, while the non-zero eigenvalues characterize the "roughness" of the $k$-dimensional skeleton.
 
-Sanity check endpoint.
+In the persistent setting, one can define **persistent Laplacians** $\mathbf{L}_k^{(\epsilon, \epsilon')}$ for pairs $\epsilon \leq \epsilon'$ in the filtration, using the boundary maps of the persistent chain complex. The non-harmonic eigenvalues of these persistent Laplacians capture geometric features of the filtration that are invisible to the barcode. Specifically, for market return point clouds, the spectral gap $\lambda_1(\mathbf{L}_1^{(\epsilon, \epsilon')})$ (smallest nonzero eigenvalue of the persistent 1-Laplacian) could serve as a feature encoding the "connectivity rigidity" of the $H_1$ topology — how strongly the observed loops resist deformation under perturbations of the return distribution.
 
-**Response** `200 OK`:
-```json
-{ "message": "Hello, World!" }
-```
+The persistent Laplacian eigenvalues are stable under small perturbations of the point cloud (analogous to the stability theorem for persistent homology), and they provide a continuous spectral summary that could replace or supplement the discrete Wasserstein distance as the topological feature fed into the LSTM.
 
----
+### 6.3 Sheaf Theory on Market Networks
 
-### `POST /predict`
+A **cellular sheaf** on a graph $G = (V, E)$ assigns a vector space $\mathcal{F}(v)$ to each vertex and $\mathcal{F}(e)$ to each edge, along with linear restriction maps $\mathcal{F}(v \trianglelefteq e) : \mathcal{F}(v) \to \mathcal{F}(e)$ for each incident vertex-edge pair.
 
-Executes the full pipeline: market data → features → LSTM → crisis detection → Alpaca trades.
+Applied to a market network where vertices are assets and edge weights encode return correlation, a sheaf model could assign to each vertex $v_i$ the local state space of asset $i$ (its feature vector over time), and encode the restriction maps as the learned correlation structure between neighboring assets in the graph. The **sheaf Laplacian**:
 
-**Request body:** none
+$$\mathbf{L}_{\mathcal{F}} = \mathbf{B}^T \mathbf{B}, \quad \mathbf{B}_{e, v} = \mathcal{F}(v \trianglelefteq e)$$
 
-**Response** `200 OK`:
-```json
-{
-  "predictions": [
-    { "Ticker": "AAPL", "Prediction": 0.0073 },
-    { "Ticker": "MSFT", "Prediction": -0.0012 },
-    { "Ticker": "NVDA", "Prediction": 0.0051 }
-  ],
-  "crisis_status": false
-}
-```
+then provides a global consistency measure — the **sheaf cohomology** $H^0(\mathcal{F})$ captures sections of the sheaf (globally consistent assignments of asset states), and its dimension tracks the number of "consensus directions" in the market.
 
-| Field | Type | Description |
-|---|---|---|
-| `predictions[].Ticker` | string | Ticker symbol |
-| `predictions[].Prediction` | float | Raw LSTM output — predicted log return $\hat{y}_i$ |
-| `crisis_status` | boolean | Whether the Wasserstein spike threshold was exceeded |
+A large $\dim H^0(\mathcal{F})$ might indicate that asset states are globally consistent (trending market), while a small $\dim H^0(\mathcal{F})$ indicates high heterogeneity. The **coboundary** $\delta \mathbf{x} = \mathbf{B}\mathbf{x}$ measures the disagreement between neighboring assets' states, potentially providing a richer topological encoding of market consensus or divergence than any per-asset indicator.
 
-> **Note:** This endpoint is long-running. First-call latency is 10–30 minutes due to data download, BERT inference across hundreds of tickers' headlines, and LSTM forward pass. Subsequent same-day calls use cached data and return in seconds.
+Sheaf neural networks, which generalize graph neural networks by replacing scalar edge weights with linear maps, could be used to learn the sheaf restriction maps directly from data — end-to-end learning of the market's topological structure.
 
----
+### 6.4 Zigzag Persistence for Non-Stationary Topology
 
-### `POST /portfolio_history`
+Standard persistent homology tracks features as a filtration grows monotonically. However, the sequence of point clouds $\{\mathcal{X}_t\}$ over time is not a filtration — the cloud changes arbitrarily from window to window. **Zigzag persistence** (Carlsson & de Silva, 2010) generalizes persistent homology to sequences of spaces connected by maps in alternating directions:
 
-Fetches Alpaca paper account equity history.
+$$\mathcal{X}_{t_1} \leftrightarrow \mathcal{X}_{t_1} \cup \mathcal{X}_{t_2} \leftrightarrow \mathcal{X}_{t_2} \leftrightarrow \mathcal{X}_{t_2} \cup \mathcal{X}_{t_3} \leftrightarrow \cdots$$
 
-**Request body:**
-```json
-{ "period": "1D" }
-```
+Each pair of consecutive point clouds is connected by inclusion maps into their union, yielding a zigzag diagram of vector spaces and linear maps. Applying the structure theorem for zigzag modules (analogous to the barcode decomposition) produces a zigzag barcode $\{[b_j, d_j]\}_j$ where each interval $[b_j, d_j]$ represents a topological feature that is born at time $t = b_j$ and dies at time $t = d_j$ in the sequence of point clouds.
 
-| `period` | Data Span | Granularity |
-|---|---|---|
-| `"1H"` | Last hour | 5-minute bars |
-| `"1D"` | Last day | 1-hour bars |
-| `"1W"` | Last week | Daily bars |
-| `"1M"` | Last month | Weekly bars |
-| `"1Y"` | Last year | Monthly bars |
+Applied to the rolling cross-asset return windows, zigzag persistence would produce a direct encoding of the *temporal evolution* of topological features — which loops persist across many consecutive windows (stable market structure) versus which appear and disappear rapidly (transient correlation patterns). This is a strictly more informative representation than the pairwise Wasserstein distance currently used, which only captures the magnitude of change between consecutive windows without tracking the identity of individual features across time.
 
-**Response** `200 OK` (success):
-```json
-[
-  { "date": "2025-11-01", "portfolio_value": 100234.56 },
-  { "date": "2025-11-04", "portfolio_value": 101102.33 }
-]
-```
+### 6.5 Path Signatures & Rough Path Theory
 
-**Response** `200 OK` (error):
-```json
-{ "error": "descriptive error string" }
-```
+The **signature** of a path $\mathbf{X} : [0,T] \to \mathbb{R}^d$ is the collection of all iterated integrals:
+
+$$S(\mathbf{X})_{s,t} = \left(1, \int_s^t dX^i, \int_{s < u_1 < u_2 < t} dX^{i_1} dX^{i_2}, \int_{s < u_1 < u_2 < u_3 < t} dX^{i_1} dX^{i_2} dX^{i_3}, \ldots \right)$$
+
+The signature takes values in the tensor algebra $T((\mathbb{R}^d)) = \prod_{k=0}^\infty (\mathbb{R}^d)^{\otimes k}$. By the **universal nonlinearity theorem** (Chen, 1958; Hambly-Lyons, 2010), every continuous function on compact sets of paths can be approximated arbitrarily well by a linear functional on the signature — making it the natural feature map for sequential data in the same way that polynomials are the natural features for static data.
+
+For a multivariate financial time series (the joint price path of all tracked assets), the **log-signature** (the logarithm in the free nilpotent Lie algebra) provides a finite-dimensional, graded summary of the path's shape up to a given degree. The degree-2 terms encode area swept (related to quadratic covariation), degree-3 terms encode the order of movements, and higher-degree terms capture increasingly complex path geometry.
+
+Unlike the feature-engineering approach of computing discrete indicators (RSI, volatility, etc.), the signature approach is in principle *lossless* up to tree-like equivalence — it captures all information about the path except for its time-reparameterization. Replacing the 10-feature per-timestep vector with a truncated log-signature of the multivariate price path could substantially improve the LSTM's ability to encode complex cross-asset dynamics without manual feature design.
+
+### 6.6 Information Geometry of Return Distributions
+
+Rather than treating the return distribution as a point cloud in Euclidean space, one can model each window $t$ as a parametric distribution $p_t(\cdot; \boldsymbol{\theta}_t) \in \mathcal{M}$, where $\mathcal{M}$ is a statistical manifold — the space of probability distributions equipped with the **Fisher-Rao metric**:
+
+$$g_{ij}(\boldsymbol{\theta}) = \mathbb{E}_{p(\cdot;\boldsymbol{\theta})}\!\left[\frac{\partial \log p}{\partial \theta^i} \frac{\partial \log p}{\partial \theta^j}\right]$$
+
+This is the unique Riemannian metric on $\mathcal{M}$ (up to scaling) that is invariant under sufficient statistics — the natural geometric structure of the space of distributions.
+
+For Gaussian return distributions $\mathcal{N}(\boldsymbol{\mu}_t, \boldsymbol{\Sigma}_t)$, the Fisher-Rao geodesic distance has a closed form involving the Mahalanobis distance between means and the log-ratio of covariance matrices. The **geodesic distance between consecutive return distributions** on this manifold would be a principled replacement for the Euclidean-based Wasserstein distance currently used, with the advantage of accounting for the full covariance structure rather than just the point cloud geometry.
+
+Furthermore, the **$\alpha$-connections** of information geometry (Amari, 1985) define a family of affine connections on $\mathcal{M}$ parameterized by $\alpha \in [-1, 1]$. The $\alpha = 0$ connection is the Levi-Civita connection of the Fisher-Rao metric; $\alpha = \pm 1$ are the exponential and mixture connections of exponential family distributions. The curvature of $\mathcal{M}$ under these connections encodes the non-Gaussian nature of the return distribution — a measure of tail risk and departure from normality that is complementary to the topological features.
+
+### 6.7 Topological Autoencoders & Representation Learning
+
+The current approach feeds hand-engineered topological features (Wasserstein distance) into an LSTM. A more powerful direction is **end-to-end topological learning**: training a neural network whose loss function includes a topological regularization term that directly shapes the learned representation's topology.
+
+The **topological autoencoder** (Moor et al., 2020) augments the standard reconstruction loss with a **topological signature loss**:
+
+$$\mathcal{L} = \mathcal{L}_{\text{recon}} + \lambda \cdot \mathcal{L}_{\text{topo}}$$
+
+where the topological loss penalizes differences between the persistence diagram of the input point cloud and the persistence diagram of its latent encoding:
+
+$$\mathcal{L}_{\text{topo}} = d_{W_2}\!\left(\text{PD}(\mathcal{X}),\; \text{PD}(f_\theta(\mathcal{X}))\right)$$
+
+This requires differentiating through the persistence diagram computation. Recent work (Gabrielsson et al., 2020; Brüel-Gabrielsson et al., 2020) shows that the Wasserstein loss $\mathcal{L}_{\text{topo}}$ is sub-differentiable almost everywhere, enabling gradient-based optimization.
+
+Applied to the market prediction setting, a topological autoencoder pretrained on the cross-asset return point clouds would learn latent representations that preserve the topological structure of the market — the encoded representation would have similar homology to the input return manifold. The latent vectors could then be used as richer, topology-aware market embeddings fed into the LSTM, replacing both the Wasserstein scalar and the raw feature vector.
+
+### 6.8 Random Matrix Theory for Correlation Filtering
+
+The cross-asset return covariance matrix $\hat{\boldsymbol{\Sigma}}_t \in \mathbb{R}^{N \times N}$ estimated from a window of $T$ trading days with $N$ assets is subject to substantial estimation noise when $T/N$ is small. For $T = 30$ and $N = 500$ (full S&P 500), the ratio $c = N/T = 16.7 \gg 1$, placing us in the regime where nearly all sample eigenvalues are noise-dominated.
+
+**Random Matrix Theory** (RMT) provides a precise characterization of this noise. Under the Marchenko-Pastur law, if the true covariance is the identity (pure noise), the empirical eigenvalue distribution of $\hat{\boldsymbol{\Sigma}}$ converges to:
+
+$$\rho_c(\lambda) = \frac{\sqrt{(\lambda_+ - \lambda)(\lambda - \lambda_-)}}{2\pi c \lambda}, \quad \lambda \in [\lambda_-, \lambda_+]$$
+
+$$\lambda_{\pm} = (1 \pm \sqrt{c})^2$$
+
+Eigenvalues outside the Marchenko-Pastur bulk $[\lambda_-, \lambda_+]$ are statistically significant — they carry genuine factor structure. Projecting the covariance onto only the subspace spanned by the significant eigenvectors produces a **noise-cleaned covariance matrix** $\hat{\boldsymbol{\Sigma}}_t^{\text{clean}}$.
+
+The point cloud for TDA could be constructed from the rows of $\hat{\boldsymbol{\Sigma}}_t^{\text{clean}}$ rather than the raw return matrix $\mathbf{M}_t$, substantially reducing noise in the persistence diagrams and sharpening the topological features. Moreover, the evolution of the significant eigenvalue spectrum itself — the number, magnitudes, and eigenvector directions of the above-bulk eigenvalues — is a rich signal of market factor structure that could supplement the topological features.
+
+In the language of random matrix theory, the first (largest) eigenvalue corresponds to the market mode (all assets moving together), and its eigenvector loading evolves over time, capturing the degree of systemic co-movement. This is directly related to the topological $H_0$ signal (number of connected components) but with a cleaner statistical foundation — an RMT-filtered TDA pipeline would combine the best of both frameworks.
 
 ---
 
-## 9. Caching & Performance
-
-The pipeline employs a file-based caching strategy keyed on the date range `{start_date}_to_{end_date}`. Because `end_date = today` and `start_date = today - 90 days`, the cache key changes every calendar day, naturally expiring old entries.
-
-| Cache File | Content | Typical Size | Regeneration Cost |
-|---|---|---|---|
-| `sp500_data_{start}_to_{end}.csv` | OHLCV for all tickers, 90 days | ~50 MB | ~2–5 min (yfinance API) |
-| `articles_data_{start}_to_{end}.csv` | News headlines per ticker per date | ~10 MB | ~20–40 min (Google News RSS) |
-| `finbert_sentiment_df_{start}_to_{end}.csv` | FinBERT labels (pre-numeric conversion) | ~5 MB | ~10–30 min (BERT inference) |
-
-Prediction outputs (`results_predictions_*.csv`) are written but not read back — they serve as a persistent audit trail of model outputs over time.
-
-All cache files are gitignored. Old cache files accumulate in `src/model-backend/` and can be deleted freely — they will be regenerated on the next run.
-
----
-
-## 10. Dashboard
-
-The Blazor frontend (`Home.razor`) renders a live trading dashboard with the following components:
-
-| Component | Description |
-|---|---|
-| **Period Selector** | Dropdown for `1H / 1D / 1W / 1M / 1Y` portfolio history granularity |
-| **Load Portfolio History** | Fetches Alpaca equity history and populates the chart |
-| **Run Predictions** | Triggers the full inference pipeline, then auto-refreshes the chart |
-| **Progress Bar** | Indeterminate MudBlazor progress bar shown during any in-flight HTTP call |
-| **Line Chart** | Interactive MudBlazor chart with configurable width, height, line stroke width, X-axis label rotation, and data markers |
-| **Crisis Alert** | Yellow dismissible banner shown when `crisis_status = true` from the backend |
-| **Error Alert** | Red dismissible banner shown on any HTTP or JSON parsing failure |
-
-Both action buttons are disabled while a request is in flight, preventing double-submission. On load, `FetchPortfolioHistory()` is called automatically from `OnInitializedAsync()` so the chart is populated immediately on page open.
-
----
-
-## 11. Limitations & Future Work
-
-**Model staleness.** The LSTM is a static artifact trained on historical data. Market dynamics evolve — volatility regimes shift, correlation structures change, and new macroeconomic factors emerge. The model should be retrained periodically (monthly or quarterly) on a rolling training window to remain calibrated to current market conditions.
-
-**Synchronous long-running endpoint.** The `/predict` endpoint currently blocks for the duration of the full pipeline (up to 30+ minutes). A production-grade implementation should use an async task queue (e.g., Celery with Redis) to immediately return a job ID and allow the client to poll for completion.
-
-**No authentication.** The FastAPI backend exposes trade-execution endpoints with no authentication. Any process on localhost can trigger trades. An API key header or JWT authentication layer should be added before exposing the backend to any network beyond loopback.
-
-**Single sentiment score per ticker per day.** The current implementation takes only the first deduplicated headline per ticker per date. A more robust approach would average sentiment across all articles for that day, weight by source credibility, or use a finer-grained temporal alignment.
-
-**Betti numbers disabled.** The TDA pipeline computes $B_0$, $B_1$, $B_2$ (connected components, loops, voids) but these are excluded from the final feature set. Ablation experiments could determine whether including them improves model performance, and at what computational cost.
-
-**No position sizing.** The current strategy uses a fixed $1,000 notional per trade regardless of predicted return magnitude, volatility, or portfolio concentration. Kelly criterion or volatility-scaled position sizing would produce a more theoretically sound allocation.
-
-**Backtesting.** There is no systematic backtesting framework. The notebooks in `model/` contain inference validation, but a rigorous walk-forward backtest with realistic transaction costs and slippage modeling is needed before drawing conclusions about strategy profitability.
+*For the full model training pipeline, see `model/model.ipynb`. For the inference and feature engineering implementation, see `src/model-backend/server.py`.*
