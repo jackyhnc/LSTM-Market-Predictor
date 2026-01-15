@@ -41,6 +41,7 @@ This project presents a fully automated equity trading system targeting the S&P 
   - [6.6 Information Geometry of Return Distributions](#66-information-geometry-of-return-distributions)
   - [6.7 Topological Autoencoders & Representation Learning](#67-topological-autoencoders--representation-learning)
   - [6.8 Random Matrix Theory for Correlation Filtering](#68-random-matrix-theory-for-correlation-filtering)
+- [References](#references)
 
 ---
 
@@ -353,7 +354,7 @@ The current implementation uses the $H_1$ Wasserstein distance as a single scala
 
 ### 6.1 Multiparameter Persistence
 
-The current pipeline uses *one-parameter* persistence: homology is tracked as a function of a single filtration parameter $\epsilon$ (the Rips scale). A natural and more expressive generalization is **multiparameter persistent homology**, where homology is tracked over a multi-dimensional filtration parameter space.
+The current pipeline uses *one-parameter* persistence: homology is tracked as a function of a single filtration parameter $\epsilon$ (the Rips scale). A natural and more expressive generalization is **multiparameter persistent homology**, where homology is tracked over a multi-dimensional filtration parameter space [[Carlsson & Zomorodian, 2009]](#references).
 
 For market data, the most natural two-parameter filtration combines the Rips scale $\epsilon$ with a density filtration $\nu$. Define the density of a point $x \in \mathcal{X}$ at scale $r$ as:
 
@@ -365,9 +366,11 @@ The algebraic output is no longer a collection of intervals (barcodes) but a **p
 
 $$\mathbb{M} : (\epsilon, \nu) \mapsto H_k(\mathcal{R}_{(\epsilon,\nu)})$$
 
-The theory of multiparameter persistence is substantially harder than the one-parameter case: there is no complete discrete invariant analogous to the barcode, and the space of persistence modules does not admit a unique decomposition. Current practical approaches use **fibered barcodes** (one-parameter slices through the 2D parameter space) or the **rank invariant** $\xi(\mathbf{u}, \mathbf{v}) = \text{rank}(H_k(\mathcal{R}_\mathbf{u}) \to H_k(\mathcal{R}_\mathbf{v}))$, which is stable but not complete. Incorporating multiparameter features would allow the model to separately characterize topology at different density/scale combinations, potentially distinguishing core-market from peripheral-stock behavior within the same filtration.
+The theory of multiparameter persistence is substantially harder than the one-parameter case: Carlsson & Zomorodian (2009) proved that no complete discrete invariant analogous to the barcode exists for $n \geq 2$ parameters, and the space of persistence modules does not admit a unique decomposition. Current practical approaches use **fibered barcodes** (one-parameter slices through the 2D parameter space) or the **rank invariant** $\xi(\mathbf{u}, \mathbf{v}) = \text{rank}(H_k(\mathcal{R}_\mathbf{u}) \to H_k(\mathcal{R}_\mathbf{v}))$, which is stable but not complete. Incorporating multiparameter features would allow the model to separately characterize topology at different density/scale combinations, potentially distinguishing core-market from peripheral-stock behavior within the same filtration.
 
 ### 6.2 Persistent Laplacians & Spectral TDA
+
+Wang, Nguyen & Wei (2020) introduced **persistent spectral graph theory** [[Wang, Nguyen & Wei, 2020]](#references), showing that the full topological persistence of a filtration can be recovered from the harmonic spectra of the **persistent combinatorial Laplacian** — a result that strictly generalizes classical persistent homology while simultaneously encoding geometric information invisible to the barcode.
 
 The **combinatorial Laplacian** (Hodge Laplacian) of a simplicial complex $K$ at dimension $k$ is:
 
@@ -381,6 +384,8 @@ The persistent Laplacian eigenvalues are stable under small perturbations of the
 
 ### 6.3 Sheaf Theory on Market Networks
 
+Hansen & Ghrist (2019) developed the spectral theory of cellular sheaves [[Hansen & Ghrist, 2019]](#references), and Hansen & Gebhart (2020) subsequently introduced **sheaf neural networks** [[Hansen & Gebhart, 2020]](#references) — a generalization of graph neural networks in which scalar edge weights are replaced by linear maps encoding the inter-node consistency structure of a sheaf.
+
 A **cellular sheaf** on a graph $G = (V, E)$ assigns a vector space $\mathcal{F}(v)$ to each vertex and $\mathcal{F}(e)$ to each edge, along with linear restriction maps $\mathcal{F}(v \trianglelefteq e) : \mathcal{F}(v) \to \mathcal{F}(e)$ for each incident vertex-edge pair.
 
 Applied to a market network where vertices are assets and edge weights encode return correlation, a sheaf model could assign to each vertex $v_i$ the local state space of asset $i$ (its feature vector over time), and encode the restriction maps as the learned correlation structure between neighboring assets in the graph. The **sheaf Laplacian**:
@@ -389,13 +394,11 @@ $$\mathbf{L}_{\mathcal{F}} = \mathbf{B}^T \mathbf{B}, \quad \mathbf{B}_{e, v} = 
 
 then provides a global consistency measure — the **sheaf cohomology** $H^0(\mathcal{F})$ captures sections of the sheaf (globally consistent assignments of asset states), and its dimension tracks the number of "consensus directions" in the market.
 
-A large $\dim H^0(\mathcal{F})$ might indicate that asset states are globally consistent (trending market), while a small $\dim H^0(\mathcal{F})$ indicates high heterogeneity. The **coboundary** $\delta \mathbf{x} = \mathbf{B}\mathbf{x}$ measures the disagreement between neighboring assets' states, potentially providing a richer topological encoding of market consensus or divergence than any per-asset indicator.
-
-Sheaf neural networks, which generalize graph neural networks by replacing scalar edge weights with linear maps, could be used to learn the sheaf restriction maps directly from data — end-to-end learning of the market's topological structure.
+A large $\dim H^0(\mathcal{F})$ might indicate that asset states are globally consistent (trending market), while a small $\dim H^0(\mathcal{F})$ indicates high heterogeneity. The **coboundary** $\delta \mathbf{x} = \mathbf{B}\mathbf{x}$ measures the disagreement between neighboring assets' states, potentially providing a richer topological encoding of market consensus or divergence than any per-asset indicator. The sheaf restriction maps could be learned end-to-end by treating the market network as input to a sheaf neural network.
 
 ### 6.4 Zigzag Persistence for Non-Stationary Topology
 
-Standard persistent homology tracks features as a filtration grows monotonically. However, the sequence of point clouds $\{\mathcal{X}_t\}$ over time is not a filtration — the cloud changes arbitrarily from window to window. **Zigzag persistence** (Carlsson & de Silva, 2010) generalizes persistent homology to sequences of spaces connected by maps in alternating directions:
+Standard persistent homology tracks features as a filtration grows monotonically. However, the sequence of point clouds $\{\mathcal{X}_t\}$ over time is not a filtration — the cloud changes arbitrarily from window to window. **Zigzag persistence** [[Carlsson & de Silva, 2010]](#references) generalizes persistent homology to sequences of spaces connected by maps in alternating directions:
 
 $$\mathcal{X}_{t_1} \leftrightarrow \mathcal{X}_{t_1} \cup \mathcal{X}_{t_2} \leftrightarrow \mathcal{X}_{t_2} \leftrightarrow \mathcal{X}_{t_2} \cup \mathcal{X}_{t_3} \leftrightarrow \cdots$$
 
@@ -405,19 +408,19 @@ Applied to the rolling cross-asset return windows, zigzag persistence would prod
 
 ### 6.5 Path Signatures & Rough Path Theory
 
-The **signature** of a path $\mathbf{X} : [0,T] \to \mathbb{R}^d$ is the collection of all iterated integrals:
+The **signature** of a path $\mathbf{X} : [0,T] \to \mathbb{R}^d$, introduced by Chen (1958) [[Chen, 1958]](#references), is the collection of all iterated integrals:
 
 $$S(\mathbf{X})_{s,t} = \left(1, \int_s^t dX^i, \int_{s < u_1 < u_2 < t} dX^{i_1} dX^{i_2}, \int_{s < u_1 < u_2 < u_3 < t} dX^{i_1} dX^{i_2} dX^{i_3}, \ldots \right)$$
 
-The signature takes values in the tensor algebra $T((\mathbb{R}^d)) = \prod_{k=0}^\infty (\mathbb{R}^d)^{\otimes k}$. By the **universal nonlinearity theorem** (Chen, 1958; Hambly-Lyons, 2010), every continuous function on compact sets of paths can be approximated arbitrarily well by a linear functional on the signature — making it the natural feature map for sequential data in the same way that polynomials are the natural features for static data.
+The signature takes values in the tensor algebra $T((\mathbb{R}^d)) = \prod_{k=0}^\infty (\mathbb{R}^d)^{\otimes k}$. Hambly & Lyons (2010) proved that a path of bounded variation is uniquely determined (up to tree-like equivalence) by its signature [[Hambly & Lyons, 2010]](#references) — establishing that the signature is a lossless representation of the path modulo reparameterization. Separately, universal approximation results show that every continuous function on compact sets of paths can be approximated by a linear functional on the signature, making it the natural feature map for sequential data in the same way polynomials are the natural features for static data.
 
 For a multivariate financial time series (the joint price path of all tracked assets), the **log-signature** (the logarithm in the free nilpotent Lie algebra) provides a finite-dimensional, graded summary of the path's shape up to a given degree. The degree-2 terms encode area swept (related to quadratic covariation), degree-3 terms encode the order of movements, and higher-degree terms capture increasingly complex path geometry.
 
-Unlike the feature-engineering approach of computing discrete indicators (RSI, volatility, etc.), the signature approach is in principle *lossless* up to tree-like equivalence — it captures all information about the path except for its time-reparameterization. Replacing the 10-feature per-timestep vector with a truncated log-signature of the multivariate price path could substantially improve the LSTM's ability to encode complex cross-asset dynamics without manual feature design.
+Unlike the feature-engineering approach of computing discrete indicators (RSI, volatility, etc.), the signature approach is *lossless* up to tree-like equivalence. Replacing the 10-feature per-timestep vector with a truncated log-signature of the multivariate price path could substantially improve the LSTM's ability to encode complex cross-asset dynamics without manual feature design.
 
 ### 6.6 Information Geometry of Return Distributions
 
-Rather than treating the return distribution as a point cloud in Euclidean space, one can model each window $t$ as a parametric distribution $p_t(\cdot; \boldsymbol{\theta}_t) \in \mathcal{M}$, where $\mathcal{M}$ is a statistical manifold — the space of probability distributions equipped with the **Fisher-Rao metric**:
+Rather than treating the return distribution as a point cloud in Euclidean space, one can model each window $t$ as a parametric distribution $p_t(\cdot; \boldsymbol{\theta}_t) \in \mathcal{M}$, where $\mathcal{M}$ is a statistical manifold — the space of probability distributions equipped with the **Fisher-Rao metric** [[Amari, 1985]](#references):
 
 $$g_{ij}(\boldsymbol{\theta}) = \mathbb{E}_{p(\cdot;\boldsymbol{\theta})}\!\left[\frac{\partial \log p}{\partial \theta^i} \frac{\partial \log p}{\partial \theta^j}\right]$$
 
@@ -425,21 +428,17 @@ This is the unique Riemannian metric on $\mathcal{M}$ (up to scaling) that is in
 
 For Gaussian return distributions $\mathcal{N}(\boldsymbol{\mu}_t, \boldsymbol{\Sigma}_t)$, the Fisher-Rao geodesic distance has a closed form involving the Mahalanobis distance between means and the log-ratio of covariance matrices. The **geodesic distance between consecutive return distributions** on this manifold would be a principled replacement for the Euclidean-based Wasserstein distance currently used, with the advantage of accounting for the full covariance structure rather than just the point cloud geometry.
 
-Furthermore, the **$\alpha$-connections** of information geometry (Amari, 1985) define a family of affine connections on $\mathcal{M}$ parameterized by $\alpha \in [-1, 1]$. The $\alpha = 0$ connection is the Levi-Civita connection of the Fisher-Rao metric; $\alpha = \pm 1$ are the exponential and mixture connections of exponential family distributions. The curvature of $\mathcal{M}$ under these connections encodes the non-Gaussian nature of the return distribution — a measure of tail risk and departure from normality that is complementary to the topological features.
+Furthermore, Amari's **$\alpha$-connections** define a family of affine connections on $\mathcal{M}$ parameterized by $\alpha \in [-1, 1]$. The $\alpha = 0$ connection is the Levi-Civita connection of the Fisher-Rao metric; $\alpha = \pm 1$ are the exponential and mixture connections of exponential family distributions. The curvature of $\mathcal{M}$ under these connections encodes the non-Gaussian nature of the return distribution — a measure of tail risk and departure from normality that is complementary to the topological features.
 
 ### 6.7 Topological Autoencoders & Representation Learning
 
 The current approach feeds hand-engineered topological features (Wasserstein distance) into an LSTM. A more powerful direction is **end-to-end topological learning**: training a neural network whose loss function includes a topological regularization term that directly shapes the learned representation's topology.
 
-The **topological autoencoder** (Moor et al., 2020) augments the standard reconstruction loss with a **topological signature loss**:
+Moor et al. (2020) introduced the **topological autoencoder** [[Moor et al., 2020]](#references), which augments the standard reconstruction loss with a differentiable topological regularization term that penalizes differences between the persistence diagram of the input point cloud and the persistence diagram of its latent encoding:
 
-$$\mathcal{L} = \mathcal{L}_{\text{recon}} + \lambda \cdot \mathcal{L}_{\text{topo}}$$
+$$\mathcal{L} = \mathcal{L}_{\text{recon}} + \lambda \cdot \mathcal{L}_{\text{topo}}, \quad \mathcal{L}_{\text{topo}} = d\!\left(\text{PD}(\mathcal{X}),\; \text{PD}(f_\theta(\mathcal{X}))\right)$$
 
-where the topological loss penalizes differences between the persistence diagram of the input point cloud and the persistence diagram of its latent encoding:
-
-$$\mathcal{L}_{\text{topo}} = d_{W_2}\!\left(\text{PD}(\mathcal{X}),\; \text{PD}(f_\theta(\mathcal{X}))\right)$$
-
-This requires differentiating through the persistence diagram computation. Recent work (Gabrielsson et al., 2020; Brüel-Gabrielsson et al., 2020) shows that the Wasserstein loss $\mathcal{L}_{\text{topo}}$ is sub-differentiable almost everywhere, enabling gradient-based optimization.
+The practical differentiability of such losses through the persistence computation was established by Brüel Gabrielsson et al. (2020), who introduced a general-purpose **topology layer** for PyTorch [[Brüel Gabrielsson et al., 2020]](#references). They showed that the persistence diagram is sub-differentiable almost everywhere with respect to the input point positions, enabling gradient-based optimization of topology-regularized losses.
 
 Applied to the market prediction setting, a topological autoencoder pretrained on the cross-asset return point clouds would learn latent representations that preserve the topological structure of the market — the encoded representation would have similar homology to the input return manifold. The latent vectors could then be used as richer, topology-aware market embeddings fed into the LSTM, replacing both the Wasserstein scalar and the raw feature vector.
 
@@ -447,7 +446,7 @@ Applied to the market prediction setting, a topological autoencoder pretrained o
 
 The cross-asset return covariance matrix $\hat{\boldsymbol{\Sigma}}_t \in \mathbb{R}^{N \times N}$ estimated from a window of $T$ trading days with $N$ assets is subject to substantial estimation noise when $T/N$ is small. For $T = 30$ and $N = 500$ (full S&P 500), the ratio $c = N/T = 16.7 \gg 1$, placing us in the regime where nearly all sample eigenvalues are noise-dominated.
 
-**Random Matrix Theory** (RMT) provides a precise characterization of this noise. Under the Marchenko-Pastur law, if the true covariance is the identity (pure noise), the empirical eigenvalue distribution of $\hat{\boldsymbol{\Sigma}}$ converges to:
+**Random Matrix Theory** (RMT) provides a precise characterization of this noise. Laloux et al. (1999) demonstrated empirically that the bulk of the eigenvalue spectrum of financial correlation matrices is indistinguishable from pure noise under the Marchenko-Pastur distribution [[Laloux et al., 1999]](#references). Under the Marchenko-Pastur law [[Marchenko & Pastur, 1967]](#references), if the true covariance is the identity (pure noise), the empirical eigenvalue distribution of $\hat{\boldsymbol{\Sigma}}$ converges to:
 
 $$\rho_c(\lambda) = \frac{\sqrt{(\lambda_+ - \lambda)(\lambda - \lambda_-)}}{2\pi c \lambda}, \quad \lambda \in [\lambda_-, \lambda_+]$$
 
@@ -462,3 +461,31 @@ In the language of random matrix theory, the first (largest) eigenvalue correspo
 ---
 
 *For the full model training pipeline, see `model/model.ipynb`. For the inference and feature engineering implementation, see `src/model-backend/server.py`.*
+
+---
+
+## References
+
+- **[Amari, 1985]** Amari, S. (1985). *Differential-Geometrical Methods in Statistics*. Lecture Notes in Statistics, Vol. 28. Springer-Verlag, Berlin. https://doi.org/10.1007/978-1-4612-5056-2
+
+- **[Brüel Gabrielsson et al., 2020]** Brüel Gabrielsson, R., Nelson, B. J., Dwaraknath, A., & Skraba, P. (2020). A topology layer for machine learning. *Proceedings of the 23rd International Conference on Artificial Intelligence and Statistics (AISTATS 2020)*, PMLR 108, 1553–1563.
+
+- **[Carlsson & de Silva, 2010]** Carlsson, G., & de Silva, V. (2010). Zigzag persistence. *Foundations of Computational Mathematics*, 10(4), 367–405. https://doi.org/10.1007/s10208-010-9066-0
+
+- **[Carlsson & Zomorodian, 2009]** Carlsson, G., & Zomorodian, A. (2009). The theory of multidimensional persistence. *Discrete & Computational Geometry*, 42(1), 71–93. https://doi.org/10.1007/s00454-009-9176-0
+
+- **[Chen, 1958]** Chen, K. T. (1958). Integration of paths — a faithful representation of paths by non-commutative formal power series. *Transactions of the American Mathematical Society*, 89(2), 395–407. https://doi.org/10.2307/1993193
+
+- **[Hambly & Lyons, 2010]** Hambly, B., & Lyons, T. (2010). Uniqueness for the signature of a path of bounded variation and the reduced path group. *Annals of Mathematics*, 171(1), 109–167. https://doi.org/10.4007/annals.2010.171.109
+
+- **[Hansen & Gebhart, 2020]** Hansen, J., & Gebhart, T. (2020). Sheaf neural networks. *NeurIPS 2020 Workshop on Topological Data Analysis and Beyond*.
+
+- **[Hansen & Ghrist, 2019]** Hansen, J., & Ghrist, R. (2019). Toward a spectral theory of cellular sheaves. *Journal of Applied and Computational Topology*, 3(4), 315–358. https://doi.org/10.1007/s41468-019-00038-7
+
+- **[Laloux et al., 1999]** Laloux, L., Cizeau, P., Bouchaud, J.-P., & Potters, M. (1999). Noise dressing of financial correlation matrices. *Physical Review Letters*, 83(7), 1467–1470. https://doi.org/10.1103/PhysRevLett.83.1467
+
+- **[Marchenko & Pastur, 1967]** Marchenko, V. A., & Pastur, L. A. (1967). Distribution of eigenvalues in certain sets of random matrices. *Mathematics of the USSR-Sbornik*, 1(4), 457–483. https://doi.org/10.1070/SM1967v001n04ABEH001994
+
+- **[Moor et al., 2020]** Moor, M., Horn, M., Rieck, B., & Borgwardt, K. (2020). Topological autoencoders. *Proceedings of the 37th International Conference on Machine Learning (ICML 2020)*, PMLR 119, 7045–7054.
+
+- **[Wang, Nguyen & Wei, 2020]** Wang, R., Nguyen, D. D., & Wei, G. W. (2020). Persistent spectral graph. *International Journal for Numerical Methods in Biomedical Engineering*, 36(9), e3376. https://doi.org/10.1002/cnm.3376
